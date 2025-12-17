@@ -39,7 +39,10 @@ class App {
 
         // Detect potential mobile/VR for initial settings
         const isMobile = /Android|iPhone|iPad|iPod|Quest|Mobile/i.test(navigator.userAgent);
-        const grassCount = isMobile ? 150000 : 300000;
+        
+        // Significantly increased counts for density
+        // Distance culling in shader prevents performance drop
+        const grassCount = isMobile ? 250000 : 800000;
         
         this.grass = new GrassSystem(this.scene, this.terrain, grassCount); 
         this.grass.init();

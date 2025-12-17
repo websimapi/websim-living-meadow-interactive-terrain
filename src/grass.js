@@ -6,6 +6,7 @@ const GRASS_VERTEX_SHADER = `
     
     uniform float uTime;
     uniform vec3 uInteractors[10];
+    uniform vec3 uCameraPosition;
     
     attribute vec3 offset;
     attribute float scale;
@@ -22,12 +23,28 @@ const GRASS_VERTEX_SHADER = `
         vUv = uv;
         vColor = color;
         
+        // --- LOD/Distance Culling ---
+        // Calculate distance from camera to the base instance position
+        float dist = distance(offset, uCameraPosition);
+        float maxDist = 60.0;
+        float fadeDist = 10.0;
+        
+        // Calculate scale multiplier based on distance
+        float distScale = 1.0 - smoothstep(maxDist - fadeDist, maxDist, dist);
+        
+        // If practically invisible, collapse to degenerate to save rasterizer
+        if(distScale < 0.01) {
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
         // --- Geometry Transformation ---
         vec3 pos = position;
+        float currentScale = scale * distScale;
         
         // Scale
-        pos.y *= scale;
-        pos.xz *= scale * 0.8; // Maintain width
+        pos.y *= currentScale;
+        pos.xz *= currentScale; 
 
         // Rotation
         float c = cos(rotation);
@@ -43,51 +60,41 @@ const GRASS_VERTEX_SHADER = `
         // --- Wind & Interaction ---
         vec3 worldBasePos = offset;
         
-        // Wind Noise
-        float windFreq = 1.0;
-        float windAmp = 0.5;
-        // Simple distinct wind patterns
-        float wind = sin(uTime * 0.7 + worldBasePos.x * 0.1 + worldBasePos.z * 0.1) 
-                   + cos(uTime * 1.2 + worldBasePos.x * 0.3);
-        wind *= windAmp;
-
-        float bend = uv.y * uv.y;
+        // Improved Wind with multiple frequencies
+        float t = uTime;
+        float wind = sin(t * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.5 +
+                     sin(t * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.2 +
+                     sin(t * 3.0 + worldBasePos.x * 0.5) * 0.1;
+                     
+        float bend = pow(uv.y, 2.0); // Quadratic bend influence
         
         // Apply Wind
-        pos.x += wind * bend * 0.3;
-        pos.z += wind * bend * 0.1;
+        pos.x += wind * bend * 0.5;
+        pos.z += wind * bend * 0.2;
 
-        // --- High Precision Interaction ---
+        // --- Interaction ---
         vec3 globalPos = pos + worldBasePos;
         for(int i=0; i<10; i++) {
             vec3 interactor = uInteractors[i];
-            
-            // Fast check: is interactor active (not 0,0,0) and nearby
-            // Increase check distance slightly to ensure smooth entry
-            float checkRadius = 1.0; 
+            float checkRadius = 1.2; 
             
             if(dot(interactor, interactor) > 0.01) {
                 vec3 diff = globalPos - interactor;
                 float distSq = dot(diff, diff);
                 
                 if(distSq < (checkRadius * checkRadius)) {
-                    float dist = sqrt(distSq);
+                    float d = sqrt(distSq);
                     
-                    // Precise Interaction Radius
-                    float radius = 0.8;
-                    if(dist < radius) {
-                        float force = (1.0 - dist / radius);
-                        force = force * force; 
+                    float radius = 1.0;
+                    if(d < radius) {
+                        float force = (1.0 - d / radius);
+                        force = force * force * force; // Cubic for smoother touch
 
-                        // Push horizontally away from center of interactor
                         vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
                         
-                        // Push Downward
-                        float pushDown = -0.8 * force;
-                        
-                        // Apply
-                        pos += pushDir * force * 1.5 * bend;
-                        pos.y += pushDown * bend;
+                        // Push Downward and Out
+                        pos += pushDir * force * 2.0 * bend;
+                        pos.y -= force * 1.2 * bend;
                     }
                 }
             }
@@ -108,16 +115,30 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     
     uniform float uTime;
     uniform vec3 uInteractors[10];
+    uniform vec3 uCameraPosition;
     
+    attribute vec2 uv;
     attribute vec3 offset;
     attribute float scale;
     attribute float rotation;
     
     void main() {
-        vec3 pos = position;
+        // Distance Culling Match
+        float dist = distance(offset, uCameraPosition);
+        float maxDist = 60.0;
+        float fadeDist = 10.0;
+        float distScale = 1.0 - smoothstep(maxDist - fadeDist, maxDist, dist);
         
-        pos.y *= scale;
-        pos.xz *= scale * 0.8;
+        if(distScale < 0.01) {
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        vec3 pos = position;
+        float currentScale = scale * distScale;
+        
+        pos.y *= currentScale;
+        pos.xz *= currentScale;
 
         float c = cos(rotation);
         float s = sin(rotation);
@@ -126,33 +147,30 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         
         vec3 worldBasePos = offset;
         
-        float wind = sin(uTime * 0.7 + worldBasePos.x * 0.1 + worldBasePos.z * 0.1) 
-                   + cos(uTime * 1.2 + worldBasePos.x * 0.3);
+        float wind = sin(uTime * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.5 +
+                     sin(uTime * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.2;
         wind *= 0.5;
 
         float bend = uv.y * uv.y;
         
-        pos.x += wind * bend * 0.3;
-        pos.z += wind * bend * 0.1;
+        pos.x += wind * bend * 0.5;
+        pos.z += wind * bend * 0.2;
 
         vec3 globalPos = pos + worldBasePos;
         for(int i=0; i<10; i++) {
             vec3 interactor = uInteractors[i];
-            float radius = 0.5;
-            float rSq = radius * radius;
+            float radius = 1.2;
             
             if(dot(interactor, interactor) > 0.01) {
                 vec3 diff = globalPos - interactor;
                 float distSq = dot(diff, diff);
-                
-                if(distSq < rSq) {
-                    float dist = sqrt(distSq);
-                    float force = (1.0 - dist / radius);
-                    force = force * force;
-
+                if(distSq < (radius * radius)) {
+                    float d = sqrt(distSq);
+                    float force = (1.0 - d / 1.0);
+                    force = force * force * force;
                     vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
-                    pos += pushDir * force * 1.0 * bend;
-                    pos.y += -0.6 * force * bend;
+                    pos += pushDir * force * 2.0 * bend;
+                    pos.y -= force * 1.2 * bend;
                 }
             }
         }
@@ -246,36 +264,40 @@ export class GrassSystem {
 
     init() {
         // --- Improved Blade Geometry ---
-        // 2 segments width (3 verts) to allow "cupping" (curved cross-section)
-        // 3 segments height for smooth bending
-        const bladeW = 0.15; // Increased width for better coverage
-        const bladeH = 0.8;
-        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 2, 3);
+        // Higher resolution for better LOD close up
+        // 3 segments width (4 verts) for better curvature
+        // 5 segments height for smooth bending
+        const bladeW = 0.12; 
+        const bladeH = 0.8; 
+        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 3, 5);
         
         // Modify shape
         const posAttr = baseGeometry.attributes.position;
-        // Vertices order in PlaneGeo (wSeg=2, hSeg=3) -> 3 columns, 4 rows. Total 12 verts.
         
         for(let i=0; i < posAttr.count; i++) {
             let x = posAttr.getX(i);
             let y = posAttr.getY(i);
             let z = posAttr.getZ(i);
             
-            // Normalize Y 0..1 (geometry is centered at 0, so y is -h/2 to h/2 initially)
-            // Shift y so base is 0
+            // Normalize Y 0..1
             y += bladeH / 2;
             
             // Taper width at top
-            const taper = Math.max(0.1, 1.0 - Math.pow(y / bladeH, 1.5));
-            x *= taper;
+            const normalizedY = y / bladeH;
             
-            // Curve cross-section (cupping)
+            // Taper logic (Javascript)
+            let widthFactor = 1.0 - Math.pow(normalizedY, 2.0) * 0.8;
+            if(normalizedY > 0.9) widthFactor *= 0.5; // Sharp tip
+            
+            x *= widthFactor;
+            
+            // Cupping
             const xNorm = x / (bladeW * 0.5); 
-            const cup = Math.abs(xNorm) * 0.05; 
-            z += cup * (y / bladeH); 
+            const cup = Math.pow(Math.abs(xNorm), 2.0) * 0.05 * (1.0 - normalizedY * 0.5); 
+            z += cup; 
             
-            // Curve blade along length (slight natural bend)
-            z += Math.pow(y / bladeH, 2.0) * 0.1;
+            // Curve blade
+            z += Math.pow(normalizedY, 2.0) * 0.15;
 
             posAttr.setXYZ(i, x, y, z);
         }
