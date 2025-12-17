@@ -59,8 +59,8 @@ export class AudioSystem {
             const time = Date.now() / 1000;
             const intensity = (Math.sin(time * 0.5) + 1) * 0.5; // 0 to 1
             
-            filter.frequency.rampToValueAtTime(300 + intensity * 400, this.ctx.currentTime + 1);
-            this.windGain.gain.rampToValueAtTime(0.05 + intensity * 0.1, this.ctx.currentTime + 1);
+            filter.frequency.linearRampToValueAtTime(300 + intensity * 400, this.ctx.currentTime + 1);
+            this.windGain.gain.linearRampToValueAtTime(0.05 + intensity * 0.1, this.ctx.currentTime + 1);
         }, 1000);
     }
 }
