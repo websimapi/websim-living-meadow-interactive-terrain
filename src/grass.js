@@ -24,15 +24,23 @@ const GRASS_VERTEX_SHADER = `
         vColor = color;
         
         // --- LOD/Distance Culling ---
-        // Calculate distance from camera to the base instance position
         float dist = distance(offset, uCameraPosition);
-        float maxDist = 60.0;
-        float fadeDist = 10.0;
+        float maxDist = 16.0; // Reduced render distance as requested
         
-        // Calculate scale multiplier based on distance
-        float distScale = 1.0 - smoothstep(maxDist - fadeDist, maxDist, dist);
+        // Stochastic Density Culling (LOD)
+        // Fade density from 100% at 4m to 0% at 16m
+        // This aggressively thins out grass further away
+        float density = 1.0 - smoothstep(4.0, 16.0, dist);
+        float rnd = fract(sin(dot(offset.xz, vec2(12.9898, 78.233))) * 43758.5453);
         
-        // If practically invisible, collapse to degenerate to save rasterizer
+        if (rnd > density) {
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        // Scale fade for remaining blades near the edge to prevent popping
+        float distScale = 1.0 - smoothstep(12.0, 16.0, dist);
+        
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
             return;
@@ -132,9 +140,17 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     void main() {
         // Distance Culling Match
         float dist = distance(offset, uCameraPosition);
-        float maxDist = 60.0;
-        float fadeDist = 10.0;
-        float distScale = 1.0 - smoothstep(maxDist - fadeDist, maxDist, dist);
+        
+        // Stochastic Density Culling (Match main shader)
+        float density = 1.0 - smoothstep(4.0, 16.0, dist);
+        float rnd = fract(sin(dot(offset.xz, vec2(12.9898, 78.233))) * 43758.5453);
+        
+        if (rnd > density) {
+            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+            return;
+        }
+
+        float distScale = 1.0 - smoothstep(12.0, 16.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
@@ -271,7 +287,7 @@ export class GrassSystem {
         // Chunk config
         this.chunkSize = 8; // Smaller chunks for finer culling
         this.terrainSize = 100;
-        this.maxRenderDist = 32.0; // Render radius around camera
+        this.maxRenderDist = 20.0; // Reduced render radius to match new shader constraints
     }
 
     init() {
