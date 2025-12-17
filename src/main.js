@@ -69,7 +69,10 @@ class App {
         this.skySystem.update(dt);
         
         const handPoints = this.interaction.update();
-        this.grass.update(dt, handPoints);
+        
+        // Pass sun and camera position to grass
+        const sunPos = this.skySystem.dirLight.position; 
+        this.grass.update(dt, handPoints, sunPos, this.camera.position);
 
         // Sync fog with sky
         this.scene.fog.color.copy(this.scene.background); // Approximation: better done via sky
