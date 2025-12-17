@@ -95,8 +95,9 @@ export class InteractionSystem {
                     if (joint) {
                         const pos = new THREE.Vector3();
                         joint.getWorldPosition(pos);
-                        // Increased radius slightly for more realistic "fleshy" collision
-                        addInteractor(`h${handIndex}_${name}`, pos, 0.06); 
+                        // Increased radius for better collision coverage (Stick physics)
+                        // 0.05 = 5cm radius, roughly enclosing the finger + buffer for grass reaction
+                        addInteractor(`h${handIndex}_${name}`, pos, 0.05); 
                     }
                 });
             }
@@ -109,7 +110,7 @@ export class InteractionSystem {
             if (controller.visible && (!this.hands[i] || !this.hands[i].visible)) {
                 if (count < 20) {
                     const pos = controller.position.clone();
-                    addInteractor(`c${i}`, pos, 0.08);
+                    addInteractor(`c${i}`, pos, 0.1); // Larger radius for controller orb
                 }
             }
         });
