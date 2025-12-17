@@ -27,7 +27,7 @@ class App {
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        this.renderer.toneMappingExposure = 0.5;
+        this.renderer.toneMappingExposure = 1.2;
         this.container.appendChild(this.renderer.domElement);
         this.container.appendChild(VRButton.createButton(this.renderer));
 

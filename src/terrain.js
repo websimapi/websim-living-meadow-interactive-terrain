@@ -62,7 +62,7 @@ export class Terrain {
             map: texture,
             roughness: 0.9,
             metalness: 0.0,
-            color: 0x335533
+            color: 0x668866
         });
 
         this.mesh = new THREE.Mesh(geometry, material);

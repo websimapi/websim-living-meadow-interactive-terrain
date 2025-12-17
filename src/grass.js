@@ -144,8 +144,8 @@ export class GrassSystem {
         this.mesh = null;
         this.uniforms = {
             uTime: { value: 0 },
-            uBaseColor: { value: new THREE.Color(0x1a3b00) }, // Dark green
-            uTipColor: { value: new THREE.Color(0x8fa832) }, // Yellowish green
+            uBaseColor: { value: new THREE.Color(0x2a5b10) }, // Lighter base green
+            uTipColor: { value: new THREE.Color(0x9fc842) }, // Lighter tip green
             uInteractors: { value: new Float32Array(30) }, // 10 vec3s
             uInteractorStrength: { value: 1.0 },
             fogColor: { value: scene.fog ? scene.fog.color : new THREE.Color(0x000000) },

@@ -39,7 +39,7 @@ export class SkySystem {
 
         this.updateSky();
         
-        this.time = 0;
+        this.time = 450; // Start at ~7:30 AM equivalent
     }
 
     updateSky() {
@@ -61,26 +61,35 @@ export class SkySystem {
         const elevation = this.effectController.elevation;
         
         if (elevation > 0) {
-            this.dirLight.intensity = Math.max(0, elevation / 90) * 1.5;
-            this.ambientLight.intensity = Math.max(0.1, elevation / 90) * 0.5;
+            // Brighten up the day
+            const intensityFactor = Math.min(1.0, elevation / 45.0);
+            this.dirLight.intensity = intensityFactor * 2.5;
+            this.ambientLight.intensity = 0.3 + (intensityFactor * 0.7);
             
             // Sunrise/Sunset colors
             if (elevation < 10) {
-                this.dirLight.color.setHSL(0.1, 0.8, 0.5); // Orange
+                this.dirLight.color.setHSL(0.08, 0.9, 0.6); // Golden/Orange
             } else {
                 this.dirLight.color.setHSL(0.1, 0.1, 1.0); // White
             }
         } else {
             this.dirLight.intensity = 0;
-            this.ambientLight.intensity = 0.05; // Night
+            this.ambientLight.intensity = 0.15; // Brighter Night (moonlight)
         }
     }
 
     update(dt) {
-        // Day/Night Cycle
-        this.time += dt * 5.0; // Speed up time slightly
-        this.effectController.elevation = Math.sin(this.time * 0.1) * 45 + 10; // Oscillate between -35 and 55
-        this.effectController.azimuth = (this.time * 2) % 360;
+        // Day/Night Cycle - 24 minutes = 1440 seconds
+        this.time += dt;
+        const cycleDuration = 1440; 
+        const cycleProgress = (this.time % cycleDuration) / cycleDuration; // 0.0 to 1.0
+
+        // Azimuth: Full 360 rotation
+        this.effectController.azimuth = (cycleProgress * 360) - 180;
+        
+        // Elevation: Sine wave peaking at noon (progress 0.5)
+        // Range: -20 to 80 degrees roughly
+        this.effectController.elevation = Math.sin((cycleProgress - 0.25) * Math.PI * 2) * 50 + 30; 
         
         this.updateSky();
     }
