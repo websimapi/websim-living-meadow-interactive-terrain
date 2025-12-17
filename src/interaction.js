@@ -36,40 +36,36 @@ export class InteractionSystem {
 
     update() {
         this.interactionPoints = [];
+        const fingerNames = [
+            'index-finger-tip',
+            'middle-finger-tip',
+            'ring-finger-tip',
+            'pinky-finger-tip',
+            'thumb-tip'
+        ];
 
         // Check hands
         this.hands.forEach(hand => {
-            if (hand.visible) {
-                // Get finger tips (Joint indices: Index=9, Middle=14, Ring=19, Pinky=24, Thumb=4)
-                const joints = hand.joints;
-                if (joints) {
-                     // Just use index tip and palm for now to save uniform space
-                     // Index Tip
-                     if(joints['index-finger-tip']) {
-                         const pos = new THREE.Vector3();
-                         joints['index-finger-tip'].getWorldPosition(pos);
-                         this.interactionPoints.push(pos);
-                     }
-                     // Thumb Tip
-                     if(joints['thumb-tip']) {
-                         const pos = new THREE.Vector3();
-                         joints['thumb-tip'].getWorldPosition(pos);
-                         this.interactionPoints.push(pos);
-                     }
-                     // Palm
-                     if(joints['wrist']) {
-                         const pos = new THREE.Vector3();
-                         joints['wrist'].getWorldPosition(pos);
-                         this.interactionPoints.push(pos);
-                     }
-                }
+            if (hand.visible && hand.joints) {
+                // Get all finger tips for "flesh" physics
+                fingerNames.forEach(name => {
+                    const joint = hand.joints[name];
+                    if (joint) {
+                        const pos = new THREE.Vector3();
+                        joint.getWorldPosition(pos);
+                        // Store position and radius (w component)
+                        // Radius of 0.08 is about 8cm interaction sphere, tight enough for fingers
+                        this.interactionPoints.push(new THREE.Vector4(pos.x, pos.y, pos.z, 0.08)); 
+                    }
+                });
             }
         });
 
         // Fallback for controllers if no hand tracking
         this.controllers.forEach(controller => {
-            if (controller.visible && this.interactionPoints.length < 10) {
-                this.interactionPoints.push(controller.position);
+            if (controller.visible && this.interactionPoints.length < 20) {
+                // Controller is a larger interactor
+                this.interactionPoints.push(new THREE.Vector4(controller.position.x, controller.position.y, controller.position.z, 0.15));
             }
         });
         

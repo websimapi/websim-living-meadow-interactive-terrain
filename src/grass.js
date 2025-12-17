@@ -5,7 +5,7 @@ const GRASS_VERTEX_SHADER = `
     precision highp float;
     
     uniform float uTime;
-    uniform vec3 uInteractors[10];
+    uniform vec4 uInteractors[20]; // xyz, w=radius
     uniform vec3 uCameraPosition;
     
     attribute vec3 offset;
@@ -74,27 +74,34 @@ const GRASS_VERTEX_SHADER = `
 
         // --- Interaction ---
         vec3 globalPos = pos + worldBasePos;
-        for(int i=0; i<10; i++) {
-            vec3 interactor = uInteractors[i];
-            float checkRadius = 1.2; 
+        for(int i=0; i<20; i++) {
+            vec4 interactor = uInteractors[i];
+            float radius = interactor.w;
+            vec3 intPos = interactor.xyz;
             
-            if(dot(interactor, interactor) > 0.01) {
-                vec3 diff = globalPos - interactor;
+            // Optimization: Skip empty slots (assuming 0,0,0 is invalid or we check radius)
+            if(radius > 0.0) {
+                vec3 diff = globalPos - intPos;
                 float distSq = dot(diff, diff);
                 
-                if(distSq < (checkRadius * checkRadius)) {
+                // Broad phase check
+                if(distSq < (radius * radius * 4.0)) { // Check slightly larger area
                     float d = sqrt(distSq);
                     
-                    float radius = 1.0;
                     if(d < radius) {
-                        float force = (1.0 - d / radius);
-                        force = force * force * force; // Cubic for smoother touch
-
-                        vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
+                        // Harder collision response for "solid flesh" feel
+                        float force = smoothstep(radius, radius * 0.3, d); // 1.0 at center, 0.0 at radius
                         
-                        // Push Downward and Out
-                        pos += pushDir * force * 2.0 * bend;
-                        pos.y -= force * 1.2 * bend;
+                        vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
+                        if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
+
+                        // Significant displacement
+                        float disp = force * 0.8 * bend; // Max displacement amount
+                        pos.x += pushDir.x * disp;
+                        pos.z += pushDir.z * disp;
+                        
+                        // Squish down logic
+                        pos.y *= (1.0 - force * 0.7);
                     }
                 }
             }
@@ -114,7 +121,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     precision highp float;
     
     uniform float uTime;
-    uniform vec3 uInteractors[10];
+    uniform vec4 uInteractors[20];
     uniform vec3 uCameraPosition;
     
     attribute vec2 uv;
@@ -157,20 +164,24 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         pos.z += wind * bend * 0.2;
 
         vec3 globalPos = pos + worldBasePos;
-        for(int i=0; i<10; i++) {
-            vec3 interactor = uInteractors[i];
-            float radius = 1.2;
+        for(int i=0; i<20; i++) {
+            vec4 interactor = uInteractors[i];
+            float radius = interactor.w;
+            vec3 intPos = interactor.xyz;
             
-            if(dot(interactor, interactor) > 0.01) {
-                vec3 diff = globalPos - interactor;
+            if(radius > 0.0) {
+                vec3 diff = globalPos - intPos;
                 float distSq = dot(diff, diff);
                 if(distSq < (radius * radius)) {
                     float d = sqrt(distSq);
-                    float force = (1.0 - d / 1.0);
-                    force = force * force * force;
+                    float force = smoothstep(radius, radius * 0.3, d);
                     vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
-                    pos += pushDir * force * 2.0 * bend;
-                    pos.y -= force * 1.2 * bend;
+                    if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
+                    
+                    float disp = force * 0.8 * bend;
+                    pos.x += pushDir.x * disp;
+                    pos.z += pushDir.z * disp;
+                    pos.y *= (1.0 - force * 0.7);
                 }
             }
         }
@@ -254,22 +265,23 @@ export class GrassSystem {
             uTipColor: { value: new THREE.Color(0x99bb11) }, 
             uSunPosition: { value: new THREE.Vector3(10, 50, 10) },
             uCameraPosition: { value: new THREE.Vector3(0, 2, 0) },
-            uInteractors: { value: new Float32Array(30) },
+            uInteractors: { value: new Float32Array(80) }, // 20 interactors * 4 floats
         };
         
         // Chunk config
-        this.chunkSize = 10;
+        this.chunkSize = 8; // Smaller chunks for finer culling
         this.terrainSize = 100;
+        this.maxRenderDist = 32.0; // Render radius around camera
     }
 
     init() {
         // --- Improved Blade Geometry ---
         // Higher resolution for better LOD close up
-        // 3 segments width (4 verts) for better curvature
-        // 5 segments height for smooth bending
+        // 5 segments width for nicer curve
+        // 7 segments height for smoother bending
         const bladeW = 0.12; 
         const bladeH = 0.8; 
-        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 3, 5);
+        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 5, 7);
         
         // Modify shape
         const posAttr = baseGeometry.attributes.position;
@@ -385,7 +397,13 @@ export class GrassSystem {
                 
                 // Set Bounding Sphere for Culling on the specific geometry
                 const center = new THREE.Vector3(x + this.chunkSize/2, 0, z + this.chunkSize/2);
-                chunkGeo.boundingSphere = new THREE.Sphere(center, 12);
+                chunkGeo.boundingSphere = new THREE.Sphere(center, this.chunkSize * 0.8);
+
+                // Metadata for CPU culling
+                mesh.userData = {
+                    center: center,
+                    active: true
+                };
 
                 this.scene.add(mesh);
                 this.meshes.push(mesh);
@@ -399,14 +417,33 @@ export class GrassSystem {
         if (sunPos) this.uniforms.uSunPosition.value.copy(sunPos);
         if (cameraPos) this.uniforms.uCameraPosition.value.copy(cameraPos);
 
+        // --- CPU Culling ---
+        // Only render chunks near the camera to allow HIGH density without lag
+        if (cameraPos) {
+            const cullDistSq = this.maxRenderDist * this.maxRenderDist;
+            for(let i = 0; i < this.meshes.length; i++) {
+                const mesh = this.meshes[i];
+                const center = mesh.userData.center;
+                const distSq = center.distanceToSquared(cameraPos);
+                
+                const visible = distSq < cullDistSq;
+                
+                if (mesh.visible !== visible) {
+                    mesh.visible = visible;
+                }
+            }
+        }
+
+        // --- Interaction Update ---
         const arr = this.uniforms.uInteractors.value;
-        arr.fill(0);
+        arr.fill(0); // Clear old
         let idx = 0;
         interactionPoints.forEach(pt => {
-            if(idx < 30) {
+            if(idx < 80) { // 20 * 4
                 arr[idx++] = pt.x;
                 arr[idx++] = pt.y;
                 arr[idx++] = pt.z;
+                arr[idx++] = pt.w; // Radius
             }
         });
     }
