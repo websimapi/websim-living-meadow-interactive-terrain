@@ -63,8 +63,8 @@ export class SkySystem {
         if (elevation > 0) {
             // Brighten up the day
             const intensityFactor = Math.min(1.0, elevation / 45.0);
-            this.dirLight.intensity = intensityFactor * 2.5;
-            this.ambientLight.intensity = 0.3 + (intensityFactor * 0.7);
+            this.dirLight.intensity = 0.5 + intensityFactor * 2.0;
+            this.ambientLight.intensity = 0.4 + (intensityFactor * 0.6);
             
             // Sunrise/Sunset colors
             if (elevation < 10) {
@@ -74,7 +74,7 @@ export class SkySystem {
             }
         } else {
             this.dirLight.intensity = 0;
-            this.ambientLight.intensity = 0.15; // Brighter Night (moonlight)
+            this.ambientLight.intensity = 0.25; // Brighter Night (moonlight)
         }
     }
 

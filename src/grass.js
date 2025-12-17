@@ -137,15 +137,15 @@ const GRASS_FRAGMENT_SHADER = `
 `;
 
 export class GrassSystem {
-    constructor(scene, terrain, count = 50000) {
+    constructor(scene, terrain, count = 100000) {
         this.scene = scene;
         this.terrain = terrain;
         this.count = count;
         this.mesh = null;
         this.uniforms = {
             uTime: { value: 0 },
-            uBaseColor: { value: new THREE.Color(0x2a5b10) }, // Lighter base green
-            uTipColor: { value: new THREE.Color(0x9fc842) }, // Lighter tip green
+            uBaseColor: { value: new THREE.Color(0x1a4b0a) }, 
+            uTipColor: { value: new THREE.Color(0xaacc22) }, 
             uInteractors: { value: new Float32Array(30) }, // 10 vec3s
             uInteractorStrength: { value: 1.0 },
             fogColor: { value: scene.fog ? scene.fog.color : new THREE.Color(0x000000) },
@@ -155,10 +155,31 @@ export class GrassSystem {
     }
 
     init() {
-        // Create blade geometry
-        // 3 segments high for bending
-        const bladeGeo = new THREE.PlaneGeometry(0.1, 1, 1, 3);
+        // Create enhanced blade geometry
+        // Using PlaneGeometry but modifying vertices for tapering and curve
+        const BLADE_SEGS = 4;
+        const bladeGeo = new THREE.PlaneGeometry(0.12, 1, 1, BLADE_SEGS);
         bladeGeo.translate(0, 0.5, 0); // Pivot at base
+
+        // Taper and curve the blade
+        const posAttribute = bladeGeo.attributes.position;
+        
+        for (let i = 0; i < posAttribute.count; i++) {
+            const x = posAttribute.getX(i);
+            const y = posAttribute.getY(i); // 0 to 1
+            
+            // Taper width towards the top
+            const taper = Math.max(0, 1.0 - y); 
+            // Square root makes the base wider and tip pointy (parabolic-ish shape)
+            const shapeFactor = Math.pow(taper, 0.6); 
+            
+            posAttribute.setX(i, x * shapeFactor);
+            
+            // Static curve: lean the grass slightly forward
+            // Z = y^2 * strength
+            posAttribute.setZ(i, Math.pow(y, 1.5) * 0.15);
+        }
+        bladeGeo.computeVertexNormals();
 
         const material = new THREE.ShaderMaterial({
             vertexShader: GRASS_VERTEX_SHADER,
@@ -182,8 +203,8 @@ export class GrassSystem {
         const colors = [];
 
         for (let i = 0; i < this.count; i++) {
-            // Distribute grass in a circle mostly
-            const r = 40 * Math.sqrt(Math.random());
+            // Distribute grass in a circle
+            const r = 45 * Math.sqrt(Math.random());
             const theta = Math.random() * 2 * Math.PI;
             
             const x = r * Math.cos(theta);
@@ -191,15 +212,16 @@ export class GrassSystem {
             const y = this.terrain.getHeightAt(x, z);
 
             offsets.push(x, y, z);
-            scales.push(0.5 + Math.random() * 0.8); // Height variation
-            rotations.push(Math.random() * Math.PI);
+            scales.push(0.6 + Math.random() * 0.6); // Height variation
+            rotations.push(Math.random() * Math.PI * 2); // Full rotation
             
-            // Color variation
-            const hueVar = (Math.random() - 0.5) * 0.1;
-            const col = new THREE.Color().setHSL(0.25 + hueVar, 0.6, 0.4);
+            // Color variation: mix of fresh green and dryish yellow
+            const hueVar = (Math.random() - 0.5) * 0.15;
+            const satVar = (Math.random() - 0.5) * 0.2;
+            const col = new THREE.Color().setHSL(0.25 + hueVar, 0.6 + satVar, 0.4 + Math.random() * 0.2);
             colors.push(col.r, col.g, col.b);
             
-            dummy.position.set(0,0,0); // Handled in shader
+            dummy.position.set(0,0,0); 
             dummy.updateMatrix();
             this.mesh.setMatrixAt(i, dummy.matrix);
         }

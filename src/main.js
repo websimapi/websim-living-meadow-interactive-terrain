@@ -35,7 +35,7 @@ class App {
         this.terrain = new Terrain(this.scene);
         this.terrainMesh = this.terrain.init();
 
-        this.grass = new GrassSystem(this.scene, this.terrain, 60000); // 60k blades
+        this.grass = new GrassSystem(this.scene, this.terrain); // Defaults to 100k
         this.grass.init();
 
         this.skySystem = new SkySystem(this.scene, this.renderer);
