@@ -54,8 +54,8 @@ export class InteractionSystem {
                         const pos = new THREE.Vector3();
                         joint.getWorldPosition(pos);
                         // Store position and radius (w component)
-                        // Radius of 0.04 (4cm) for precise finger interaction
-                        this.interactionPoints.push(new THREE.Vector4(pos.x, pos.y, pos.z, 0.04)); 
+                        // Radius of 0.06 (6cm) for more forgiving finger interaction
+                        this.interactionPoints.push(new THREE.Vector4(pos.x, pos.y, pos.z, 0.06)); 
                     }
                 });
             }

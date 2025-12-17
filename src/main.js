@@ -41,7 +41,8 @@ class App {
         const isMobile = /Android|iPhone|iPad|iPod|Quest|Mobile/i.test(navigator.userAgent);
         
         // Optimized density for VR performance vs Visuals
-        const grassCount = isMobile ? 300000 : 1500000; 
+        // With aggressive 15m culling, we can afford much higher density even on mobile
+        const grassCount = isMobile ? 1000000 : 2000000; 
         
         this.grass = new GrassSystem(this.scene, this.terrain, grassCount); 
         this.grass.init();
