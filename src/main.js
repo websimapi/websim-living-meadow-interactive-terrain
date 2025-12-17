@@ -37,7 +37,8 @@ class App {
         this.terrain = new Terrain(this.scene);
         this.terrainMesh = this.terrain.init();
 
-        this.grass = new GrassSystem(this.scene, this.terrain, 800000); // High density
+        // Massive density increase, handled by chunking system
+        this.grass = new GrassSystem(this.scene, this.terrain, 1500000); 
         this.grass.init();
 
         this.skySystem = new SkySystem(this.scene, this.renderer);
@@ -74,16 +75,12 @@ class App {
     }
 
     optimizeForVR() {
-        // VR Optimization: Reduce workload for high-framerate stereo rendering
-        this.originalGrassCount = this.grass.mesh.count;
-        this.grass.mesh.count = 250000; // Denser grass for VR
-        this.renderer.xr.setFramebufferScaleFactor(0.85); // Mild resolution reduction
+        // With chunking, we rely on frustum culling. 
+        // Just reduce resolution slightly for fill-rate performance.
+        this.renderer.xr.setFramebufferScaleFactor(0.85);
     }
 
     restoreQuality() {
-        if (this.originalGrassCount) {
-            this.grass.mesh.count = this.originalGrassCount;
-        }
         this.renderer.xr.setFramebufferScaleFactor(1.0);
     }
 

@@ -50,6 +50,12 @@ export class InteractionSystem {
                          joints['index-finger-tip'].getWorldPosition(pos);
                          this.interactionPoints.push(pos);
                      }
+                     // Thumb Tip
+                     if(joints['thumb-tip']) {
+                         const pos = new THREE.Vector3();
+                         joints['thumb-tip'].getWorldPosition(pos);
+                         this.interactionPoints.push(pos);
+                     }
                      // Palm
                      if(joints['wrist']) {
                          const pos = new THREE.Vector3();
