@@ -8,7 +8,11 @@ export class InteractionSystem {
         this.scene = scene;
         this.controllers = [];
         this.hands = [];
-        this.interactionPoints = []; // List of active finger tips
+        this.interactionPoints = []; 
+        
+        // Map to store previous positions for velocity calculation
+        // Key: unique string ID, Value: Vector3
+        this.prevJointData = new Map();
         
         this.initXR();
     }
@@ -34,8 +38,12 @@ export class InteractionSystem {
         }
     }
 
-    update() {
-        this.interactionPoints = [];
+    update(dt) {
+        // Output arrays for Shader (max 20 interactors)
+        const posData = new Float32Array(80); // 20 * 4
+        const velData = new Float32Array(80); // 20 * 4
+        let count = 0;
+
         const fingerNames = [
             'index-finger-tip',
             'middle-finger-tip',
@@ -44,32 +52,69 @@ export class InteractionSystem {
             'thumb-tip'
         ];
 
+        // Helper to add interactor data
+        const addInteractor = (id, pos, radius) => {
+            if (count >= 20) return;
+
+            let vel = new THREE.Vector3(0, 0, 0);
+            
+            // Calculate velocity if we have history
+            if (this.prevJointData.has(id)) {
+                const prev = this.prevJointData.get(id);
+                if (dt > 0.0001) {
+                    vel.subVectors(pos, prev).divideScalar(dt);
+                }
+            }
+            
+            // Update history
+            this.prevJointData.set(id, pos.clone());
+
+            // Fill Arrays
+            const idx = count * 4;
+            
+            // Position + Radius
+            posData[idx] = pos.x;
+            posData[idx+1] = pos.y;
+            posData[idx+2] = pos.z;
+            posData[idx+3] = radius;
+            
+            // Velocity + Strength
+            velData[idx] = vel.x;
+            velData[idx+1] = vel.y;
+            velData[idx+2] = vel.z;
+            velData[idx+3] = 1.0; // Strength multiplier
+            
+            count++;
+        };
+
         // Check hands
-        this.hands.forEach(hand => {
+        this.hands.forEach((hand, handIndex) => {
             if (hand.visible && hand.joints) {
-                // Get all finger tips for "flesh" physics
                 fingerNames.forEach(name => {
                     const joint = hand.joints[name];
                     if (joint) {
                         const pos = new THREE.Vector3();
                         joint.getWorldPosition(pos);
-                        // Store position and radius (w component)
-                        // Radius of 0.06 (6cm) for more forgiving finger interaction
-                        this.interactionPoints.push(new THREE.Vector4(pos.x, pos.y, pos.z, 0.06)); 
+                        // Using a slightly smaller radius for precision, rely on velocity for impact
+                        addInteractor(`h${handIndex}_${name}`, pos, 0.04); 
                     }
                 });
             }
         });
 
-        // Fallback for controllers if no hand tracking
-        this.controllers.forEach(controller => {
-            if (controller.visible && this.interactionPoints.length < 20) {
-                // Controller is a larger interactor
-                this.interactionPoints.push(new THREE.Vector4(controller.position.x, controller.position.y, controller.position.z, 0.08));
+        // Fallback for controllers
+        this.controllers.forEach((controller, i) => {
+            // Only add controller if corresponding hand is not visible/tracked
+            // (Assumes controller 0 -> hand 0)
+            if (controller.visible && (!this.hands[i] || !this.hands[i].visible)) {
+                if (count < 20) {
+                    const pos = controller.position.clone();
+                    addInteractor(`c${i}`, pos, 0.08);
+                }
             }
         });
         
-        return this.interactionPoints;
+        return { posData, velData };
     }
 }
 

@@ -96,11 +96,12 @@ class App {
         // Update Systems
         this.skySystem.update(dt, this.camera.position);
         
-        const handPoints = this.interaction.update();
+        // Calculate interaction physics (velocity) using dt
+        const interactionData = this.interaction.update(dt);
         
         // Pass sun and camera position to grass
         const sunPos = this.skySystem.dirLight.position; 
-        this.grass.update(dt, handPoints, sunPos, this.camera.position);
+        this.grass.update(dt, interactionData, sunPos, this.camera.position);
 
         // Sync fog with sky
         this.scene.fog.color.copy(this.scene.background); // Approximation: better done via sky

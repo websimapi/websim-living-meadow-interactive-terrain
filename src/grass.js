@@ -6,6 +6,7 @@ const GRASS_VERTEX_SHADER = `
     
     uniform float uTime;
     uniform vec4 uInteractors[20]; // xyz, w=radius
+    uniform vec4 uInteractorVelocities[20]; // xyz=vel, w=strength
     uniform vec3 uCameraPosition;
     
     attribute vec3 offset;
@@ -69,44 +70,46 @@ const GRASS_VERTEX_SHADER = `
         pos.x += wind * bendFactor * 0.5;
         pos.z += wind * bendFactor * 0.2;
 
-        // --- Improved Interaction (Capsule-based) ---
-        // This calculates force based on the blade stem, ensuring the whole blade
-        // reacts uniformly even if touched in the middle or top.
-        
+        // --- Improved Interaction (Capsule + Velocity) ---
         vec3 totalDisp = vec3(0.0);
         float bladeH = currentScale; 
         
         for(int i=0; i<20; i++) {
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
-            vec3 intPos = interactor.xyz;
             
             if(radius > 0.0) {
-                // Project interactor Y onto blade segment [base.y, base.y + height]
-                // We use worldBasePos for XZ, and clamp Y to find closest point on "stem"
+                vec3 intPos = interactor.xyz;
+                vec3 intVel = uInteractorVelocities[i].xyz;
+
+                // Find closest point on blade stem
                 float tSeg = (intPos.y - worldBasePos.y) / bladeH;
                 tSeg = clamp(tSeg, 0.0, 1.0);
                 
                 vec3 closestPoint = worldBasePos;
                 closestPoint.y += bladeH * tSeg;
                 
-                // Distance to this closest point on the stem
                 float d = distance(intPos, closestPoint);
                 
                 if(d < radius) {
-                    // Force intensity with nonlinear falloff
-                    float force = 1.0 - (d / radius);
-                    force = smoothstep(0.0, 1.0, force);
+                    float force = smoothstep(0.0, 1.0, 1.0 - (d / radius));
                     
-                    // Push direction: Horizontal only, away from interactor
-                    vec3 pushDir = worldBasePos - intPos;
-                    pushDir.y = 0.0;
-                    pushDir = normalize(pushDir);
+                    // 1. Repulsion (Volumetric displacement)
+                    // Push away from the interaction point
+                    vec3 pushDir = normalize(closestPoint - intPos);
                     
-                    if(length(pushDir) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
-
-                    // Accumulate displacement
-                    totalDisp += pushDir * force * 2.5; 
+                    // 2. Drag (Velocity-based)
+                    // Pull/Push grass in direction of finger movement
+                    // We flatten Y slightly so grass doesn't fly up too much
+                    vec3 dragForce = intVel * 2.5; // Significant multiplier for responsiveness
+                    dragForce.y *= 0.2; 
+                    
+                    // Combine forces
+                    // Repulsion keeps grass out of finger volume
+                    // Drag allows "combing" and pulling
+                    vec3 interactionForce = (pushDir * 1.0 + dragForce) * force;
+                    
+                    totalDisp += interactionForce; 
                 }
             }
         }
@@ -145,6 +148,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     
     uniform float uTime;
     uniform vec4 uInteractors[20];
+    uniform vec4 uInteractorVelocities[20];
     uniform vec3 uCameraPosition;
     
     attribute vec2 uv;
@@ -189,18 +193,28 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         for(int i=0; i<20; i++) {
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
-            vec3 intPos = interactor.xyz;
+            
             if(radius > 0.0) {
+                vec3 intPos = interactor.xyz;
+                vec3 intVel = uInteractorVelocities[i].xyz;
+                
                 float tSeg = (intPos.y - worldBasePos.y) / bladeH;
                 tSeg = clamp(tSeg, 0.0, 1.0);
+                
                 vec3 closestPoint = worldBasePos;
                 closestPoint.y += bladeH * tSeg;
+                
                 float d = distance(intPos, closestPoint);
+                
                 if(d < radius) {
                     float force = smoothstep(0.0, 1.0, 1.0 - (d / radius));
-                    vec3 pushDir = normalize(vec3(worldBasePos.x - intPos.x, 0.0, worldBasePos.z - intPos.z));
-                    if(length(pushDir) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
-                    totalDisp += pushDir * force * 2.5; 
+                    
+                    vec3 pushDir = normalize(closestPoint - intPos);
+                    vec3 dragForce = intVel * 2.5;
+                    dragForce.y *= 0.2;
+                    
+                    vec3 interactionForce = (pushDir * 1.0 + dragForce) * force;
+                    totalDisp += interactionForce; 
                 }
             }
         }
@@ -297,6 +311,7 @@ export class GrassSystem {
             uSunPosition: { value: new THREE.Vector3(10, 50, 10) },
             uCameraPosition: { value: new THREE.Vector3(0, 2, 0) },
             uInteractors: { value: new Float32Array(80) }, // 20 interactors * 4 floats
+            uInteractorVelocities: { value: new Float32Array(80) }, // 20 * 4
         };
         
         // Chunk config
@@ -456,7 +471,7 @@ export class GrassSystem {
         }
     }
 
-    update(dt, interactionPoints, sunPos, cameraPos) {
+    update(dt, interactionData, sunPos, cameraPos) {
         this.uniforms.uTime.value += dt;
         
         if (sunPos) this.uniforms.uSunPosition.value.copy(sunPos);
@@ -480,17 +495,10 @@ export class GrassSystem {
         }
 
         // --- Interaction Update ---
-        const arr = this.uniforms.uInteractors.value;
-        arr.fill(0); // Clear old
-        let idx = 0;
-        interactionPoints.forEach(pt => {
-            if(idx < 80) { // 20 * 4
-                arr[idx++] = pt.x;
-                arr[idx++] = pt.y;
-                arr[idx++] = pt.z;
-                arr[idx++] = pt.w; // Radius
-            }
-        });
+        if (interactionData && interactionData.posData) {
+            this.uniforms.uInteractors.value.set(interactionData.posData);
+            this.uniforms.uInteractorVelocities.value.set(interactionData.velData);
+        }
     }
 }
 
