@@ -5,8 +5,9 @@ const GRASS_VERTEX_SHADER = `
     precision highp float;
     
     uniform float uTime;
-    uniform vec4 uInteractors[20]; // xyz, w=radius
-    uniform vec4 uInteractorVelocities[20]; // xyz=vel, w=strength
+    uniform vec4 uInteractors[50]; // Increased for multi-joint tracking
+    uniform vec4 uInteractorVelocities[50]; 
+    uniform int uInteractorCount;
     uniform vec3 uCameraPosition;
     
     attribute vec3 offset;
@@ -27,8 +28,8 @@ const GRASS_VERTEX_SHADER = `
         // --- LOD/Distance Culling ---
         float dist = distance(offset, uCameraPosition);
         
-        // Aggressive VR Culling: Fade out between 6m and 10m for extreme performance
-        float distScale = 1.0 - smoothstep(6.0, 10.0, dist);
+        // Aggressive VR Culling: Reduced distance per request (4m-8m fade)
+        float distScale = 1.0 - smoothstep(4.0, 8.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0); 
@@ -56,71 +57,76 @@ const GRASS_VERTEX_SHADER = `
         // --- 2. Wind (World Space Logic) ---
         vec3 worldBasePos = offset;
         float t = uTime;
-        float wind = sin(t * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.5 +
-                     sin(t * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.2;
+        float wind = sin(t * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.3 +
+                     sin(t * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.1;
         
-        float windBend = uv.y * uv.y;
+        float windBend = pow(uv.y, 2.0);
         pos.x += wind * windBend * 0.5;
         pos.z += wind * windBend * 0.2;
 
-        // --- 3. Stick Physics & Bending (Global Blade Interaction) ---
-        // We interact with the "Stalk" root to ensure the whole blade responds together
-        // preventing independent vertex distortion ("dents").
-        
+        // --- 3. Stick Physics & Interaction ---
         vec3 worldPos = pos + offset;
-        vec3 totalPush = vec3(0.0);
+        vec3 totalDisp = vec3(0.0);
         
-        for(int i=0; i<20; i++) {
-            vec4 interactor = uInteractors[i];
-            float radius = interactor.w;
+        for(int i=0; i<50; i++) {
+            if (i >= uInteractorCount) break;
             
-            if(radius > 0.0) {
-                vec3 intPos = interactor.xyz;
-                vec3 intVel = uInteractorVelocities[i].xyz;
-                
-                // 1. Distance check XZ (Cylinder around grass root)
-                vec2 dirXZ = worldBasePos.xz - intPos.xz;
-                float d = length(dirXZ);
-                
-                // Interaction Radius: Tighter for precision
-                float influenceRad = radius + 0.08; 
-                
-                // 2. Height check (Roughly within grass height range)
-                float relY = intPos.y - worldBasePos.y;
-                bool withinHeight = relY > -0.3 && relY < 1.0; 
+            vec4 interactor = uInteractors[i];
+            float radius = interactor.w; // Physical collider radius
+            vec3 intPos = interactor.xyz;
+            vec3 intVel = uInteractorVelocities[i].xyz;
+            
+            // Distance on XZ plane relative to grass root
+            vec2 dirXZ = worldBasePos.xz - intPos.xz;
+            float d = length(dirXZ);
+            
+            // Height Check - Expanded to capture fingers brushing top or bottom
+            float relY = intPos.y - worldBasePos.y;
+            bool withinHeight = (relY > -0.15) && (relY < (0.8 * currentScale + 0.1));
 
-                if (d < influenceRad && withinHeight) {
-                    float power = 1.0 - (d / influenceRad);
-                    power = power * power * power; // Cubic falloff for sharper "touch" near finger
-                    
-                    vec2 pushDir = normalize(dirXZ);
-                    if (length(dirXZ) < 0.0001) pushDir = vec2(1.0, 0.0);
-                    
-                    // Velocity Drag (follow the finger motion)
-                    totalPush.xz += intVel.xz * power * 0.2;
-                    
-                    // Repulsion (Push away from finger center)
-                    // Reduced strength to keep grass closer to finger
-                    totalPush.xz += pushDir * power * 0.5;
+            // Influence Zones
+            float influenceRad = radius + 0.20; // Soft influence
+
+            if (d < influenceRad && withinHeight) {
+                // Direction to push the grass (away from finger center)
+                vec2 pushDir = (d > 0.0001) ? normalize(dirXZ) : vec2(1.0, 0.0);
+                
+                // 1. HARD COLLISION (Stick Physics)
+                // If grass is physically inside the finger radius + buffer, PUSH IT OUT.
+                float hardRadius = radius + 0.04; 
+                if (d < hardRadius) {
+                    float penetration = hardRadius - d;
+                    // Strong response to clear the finger
+                    totalDisp.xz += pushDir * penetration * 1.5;
                 }
+
+                // 2. SOFT DRAG (Velocity)
+                // Grass pulled/pushed by movement air/friction
+                float falloff = 1.0 - (d / influenceRad);
+                falloff = falloff * falloff; // Quadratic
+                
+                // Add velocity contribution
+                totalDisp.xz += intVel.xz * 0.15 * falloff;
+                
+                // 3. SOFT AURA
+                // Slight repulsion even outside hard radius
+                totalDisp.xz += pushDir * 0.05 * falloff;
             }
         }
         
-        // Clamp force to prevent exploding geometry
-        float pushLen = length(totalPush);
-        if(pushLen > 1.5) totalPush = normalize(totalPush) * 1.5;
+        // Limit Displacement (prevent infinite stretching)
+        float dispLen = length(totalDisp.xz);
+        if(dispLen > 0.8) totalDisp.xz = normalize(totalDisp.xz) * 0.8;
 
-        // Apply Bending: Curve based on height squared
-        // This ensures the top moves significantly more than the bottom ("Bends from top down")
-        float bendFactor = uv.y * uv.y; 
-        vec3 finalDisp = totalPush * bendFactor;
+        // Apply Bending: Stiffer at bottom, bends more at top
+        float bendFactor = pow(uv.y, 2.5); 
+        vec3 finalDisp = totalDisp * bendFactor;
         
         worldPos += finalDisp;
         
-        // Length Preservation (Arc approximation)
-        // As it bends outward (XZ), lower the Y to simulate constant length
+        // Arc Correction: Lower Y as it bends out
         float dispMag = length(finalDisp.xz);
-        worldPos.y -= dispMag * 0.6 * uv.y; 
+        worldPos.y -= dispMag * 0.5 * uv.y; 
         
         // Prevent going below terrain
         if(worldPos.y < offset.y) worldPos.y = offset.y;
@@ -137,8 +143,9 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     precision highp float;
     
     uniform float uTime;
-    uniform vec4 uInteractors[20];
-    uniform vec4 uInteractorVelocities[20];
+    uniform vec4 uInteractors[50];
+    uniform vec4 uInteractorVelocities[50];
+    uniform int uInteractorCount;
     uniform vec3 uCameraPosition;
     
     attribute vec2 uv;
@@ -148,7 +155,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     
     void main() {
         float dist = distance(offset, uCameraPosition);
-        float distScale = 1.0 - smoothstep(6.0, 10.0, dist);
+        float distScale = 1.0 - smoothstep(4.0, 8.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
@@ -167,50 +174,53 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         pos.xz = rotateY * pos.xz;
         
         vec3 worldBasePos = offset;
-        float wind = sin(uTime * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.5 +
-                     sin(uTime * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.2;
+        float wind = sin(uTime * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.3 +
+                     sin(uTime * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.1;
         
-        float windBend = uv.y * uv.y;
+        float windBend = pow(uv.y, 2.0);
         pos.x += wind * windBend * 0.5;
         pos.z += wind * windBend * 0.2;
 
         vec3 worldPos = pos + offset;
-        vec3 totalPush = vec3(0.0);
+        vec3 totalDisp = vec3(0.0);
         
-        for(int i=0; i<20; i++) {
+        for(int i=0; i<50; i++) {
+            if (i >= uInteractorCount) break;
+            
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
-            if(radius > 0.0) {
-                vec3 intPos = interactor.xyz;
-                vec3 intVel = uInteractorVelocities[i].xyz;
-                
-                vec2 dirXZ = worldBasePos.xz - intPos.xz;
-                float d = length(dirXZ);
-                float influenceRad = radius + 0.08; 
-                float relY = intPos.y - worldBasePos.y;
+            vec3 intPos = interactor.xyz;
+            vec3 intVel = uInteractorVelocities[i].xyz;
+            
+            vec2 dirXZ = worldBasePos.xz - intPos.xz;
+            float d = length(dirXZ);
+            float relY = intPos.y - worldBasePos.y;
+            bool withinHeight = (relY > -0.15) && (relY < (0.8 * currentScale + 0.1));
+            float influenceRad = radius + 0.20; 
 
-                if (d < influenceRad && relY > -0.3 && relY < 1.0) {
-                    float power = 1.0 - (d / influenceRad);
-                    power = power * power * power; 
-                    
-                    vec2 pushDir = normalize(dirXZ);
-                    if (length(dirXZ) < 0.0001) pushDir = vec2(1.0, 0.0);
-                    
-                    totalPush.xz += intVel.xz * power * 0.2;
-                    totalPush.xz += pushDir * power * 0.5;
+            if (d < influenceRad && withinHeight) {
+                vec2 pushDir = (d > 0.0001) ? normalize(dirXZ) : vec2(1.0, 0.0);
+                float hardRadius = radius + 0.04; 
+                if (d < hardRadius) {
+                    float penetration = hardRadius - d;
+                    totalDisp.xz += pushDir * penetration * 1.5;
                 }
+                float falloff = 1.0 - (d / influenceRad);
+                falloff = falloff * falloff;
+                totalDisp.xz += intVel.xz * 0.15 * falloff;
+                totalDisp.xz += pushDir * 0.05 * falloff;
             }
         }
         
-        float pushLen = length(totalPush);
-        if(pushLen > 1.5) totalPush = normalize(totalPush) * 1.5;
+        float len = length(totalDisp.xz);
+        if(len > 0.8) totalDisp.xz = normalize(totalDisp.xz) * 0.8;
 
-        float bendFactor = uv.y * uv.y; 
-        vec3 finalDisp = totalPush * bendFactor;
+        float bendFactor = pow(uv.y, 2.5); 
+        vec3 finalDisp = totalDisp * bendFactor;
         
         worldPos += finalDisp;
         float dispMag = length(finalDisp.xz);
-        worldPos.y -= dispMag * 0.6 * uv.y; 
+        worldPos.y -= dispMag * 0.5 * uv.y; 
         if(worldPos.y < offset.y) worldPos.y = offset.y;
         
         gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
@@ -291,8 +301,9 @@ export class GrassSystem {
             uTipColor: { value: new THREE.Color(0x99bb11) }, 
             uSunPosition: { value: new THREE.Vector3(10, 50, 10) },
             uCameraPosition: { value: new THREE.Vector3(0, 2, 0) },
-            uInteractors: { value: new Float32Array(80) }, // 20 interactors * 4 floats
-            uInteractorVelocities: { value: new Float32Array(80) }, // 20 * 4
+            uInteractors: { value: new Float32Array(200) }, // 50 interactors * 4 floats
+            uInteractorVelocities: { value: new Float32Array(200) }, // 50 * 4
+            uInteractorCount: { value: 0 },
         };
         
         // Chunk config
@@ -479,6 +490,7 @@ export class GrassSystem {
         if (interactionData && interactionData.posData) {
             this.uniforms.uInteractors.value.set(interactionData.posData);
             this.uniforms.uInteractorVelocities.value.set(interactionData.velData);
+            this.uniforms.uInteractorCount.value = interactionData.count;
         }
     }
 }

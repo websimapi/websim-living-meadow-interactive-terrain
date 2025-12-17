@@ -39,22 +39,24 @@ export class InteractionSystem {
     }
 
     update(dt) {
-        // Output arrays for Shader (max 20 interactors)
-        const posData = new Float32Array(80); // 20 * 4
-        const velData = new Float32Array(80); // 20 * 4
+        // Output arrays for Shader (max 50 interactors)
+        const posData = new Float32Array(200); // 50 * 4
+        const velData = new Float32Array(200); // 50 * 4
         let count = 0;
 
-        const fingerNames = [
-            'index-finger-tip',
-            'middle-finger-tip',
-            'ring-finger-tip',
-            'pinky-finger-tip',
-            'thumb-tip'
+        // Expanded joint tracking for realistic stick physics
+        // Tracks 12 points per hand to approximate full finger collision
+        const jointsToTrack = [
+            'index-finger-tip', 'index-finger-phalanx-intermediate', 'index-finger-phalanx-proximal',
+            'middle-finger-tip', 'middle-finger-phalanx-intermediate', 'middle-finger-phalanx-proximal',
+            'ring-finger-tip', 'ring-finger-phalanx-intermediate',
+            'pinky-finger-tip', 'pinky-finger-phalanx-intermediate',
+            'thumb-tip', 'thumb-phalanx-distal'
         ];
 
         // Helper to add interactor data
         const addInteractor = (id, pos, radius) => {
-            if (count >= 20) return;
+            if (count >= 50) return;
 
             let vel = new THREE.Vector3(0, 0, 0);
             
@@ -82,7 +84,7 @@ export class InteractionSystem {
             velData[idx] = vel.x;
             velData[idx+1] = vel.y;
             velData[idx+2] = vel.z;
-            velData[idx+3] = 1.0; // Strength multiplier
+            velData[idx+3] = 1.0; 
             
             count++;
         };
@@ -90,32 +92,37 @@ export class InteractionSystem {
         // Check hands
         this.hands.forEach((hand, handIndex) => {
             if (hand.visible && hand.joints) {
-                fingerNames.forEach(name => {
+                jointsToTrack.forEach(name => {
                     const joint = hand.joints[name];
                     if (joint) {
                         const pos = new THREE.Vector3();
                         joint.getWorldPosition(pos);
-                        // Increased radius for better collision coverage (Stick physics)
-                        // 0.05 = 5cm radius, roughly enclosing the finger + buffer for grass reaction
-                        addInteractor(`h${handIndex}_${name}`, pos, 0.05); 
+                        // Accurate finger radius (~1.5cm) for precise collision
+                        addInteractor(`h${handIndex}_${name}`, pos, 0.015); 
                     }
                 });
+
+                // Add Wrist/Palm
+                if (hand.joints['wrist']) {
+                    const pos = new THREE.Vector3();
+                    hand.joints['wrist'].getWorldPosition(pos);
+                    addInteractor(`h${handIndex}_wrist`, pos, 0.04);
+                }
             }
         });
 
         // Fallback for controllers
         this.controllers.forEach((controller, i) => {
             // Only add controller if corresponding hand is not visible/tracked
-            // (Assumes controller 0 -> hand 0)
             if (controller.visible && (!this.hands[i] || !this.hands[i].visible)) {
-                if (count < 20) {
+                if (count < 50) {
                     const pos = controller.position.clone();
-                    addInteractor(`c${i}`, pos, 0.1); // Larger radius for controller orb
+                    addInteractor(`c${i}`, pos, 0.08); 
                 }
             }
         });
         
-        return { posData, velData };
+        return { posData, velData, count };
     }
 }
 
