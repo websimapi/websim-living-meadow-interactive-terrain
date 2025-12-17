@@ -9,7 +9,7 @@ const GRASS_VERTEX_SHADER = `
     attribute vec3 offset;
     attribute float scale;
     attribute float rotation;
-    attribute vec3 color;
+    attribute vec3 instColor;
 
     varying vec2 vUv;
     varying vec3 vColor;
@@ -19,7 +19,7 @@ const GRASS_VERTEX_SHADER = `
 
     void main() {
         vUv = uv;
-        vColor = color;
+        vColor = instColor;
         
         // --- Geometry Transformation ---
         vec3 pos = position;
@@ -85,67 +85,6 @@ const GRASS_VERTEX_SHADER = `
     }
 `;
 
-const GRASS_DEPTH_VERTEX_SHADER = `
-    precision highp float;
-    
-    uniform float uTime;
-    uniform vec3 uInteractors[10];
-    
-    // Instancing attributes
-    attribute vec3 offset;
-    attribute float scale;
-    attribute float rotation;
-    
-    void main() {
-        // --- Geometry Transformation ---
-        vec3 pos = position;
-        
-        // Scale
-        pos.y *= scale;
-        pos.xz *= scale * 0.7;
-
-        // Rotation
-        float c = cos(rotation);
-        float s = sin(rotation);
-        mat2 rotateY = mat2(c, -s, s, c);
-        pos.xz = rotateY * pos.xz;
-        
-        // --- Wind & Interaction ---
-        vec3 worldBasePos = offset;
-        
-        // Wind Noise
-        float windFreq = 1.0;
-        float windAmp = 0.5;
-        float wind = sin(uTime * windFreq + worldBasePos.x * 0.2 + worldBasePos.z * 0.2) 
-                   + cos(uTime * 1.5 + worldBasePos.x * 0.5);
-        wind *= windAmp;
-
-        float bend = uv.y * uv.y;
-        
-        pos.x += wind * bend * 0.3;
-        pos.z += wind * bend * 0.1;
-
-        // Interaction
-        vec3 globalPos = pos + worldBasePos;
-        for(int i=0; i<10; i++) {
-            vec3 interactor = uInteractors[i];
-            float radius = 1.5;
-            if(length(interactor) > 0.1 && distance(globalPos, interactor) < radius) {
-                vec3 dir = normalize(globalPos - interactor);
-                dir.y = 0.1;
-                dir = normalize(dir);
-                float inf = (1.0 - distance(globalPos, interactor) / radius);
-                inf = pow(inf, 2.0);
-                pos += dir * inf * 2.5 * bend;
-            }
-        }
-        
-        // --- Output ---
-        vec4 worldPosition = vec4(pos + offset, 1.0);
-        gl_Position = projectionMatrix * viewMatrix * worldPosition;
-    }
-`;
-
 const GRASS_FRAGMENT_SHADER = `
     precision highp float;
     
@@ -164,7 +103,7 @@ const GRASS_FRAGMENT_SHADER = `
         // --- LOD / Culling ---
         // Distance from camera
         float dist = distance(vWorldPosition, uCameraPosition);
-        if(dist > 75.0) discard; // Hard cull far away
+        if(dist > 120.0) discard; // Hard cull far away
 
         // --- Coloring ---
         vec3 albedo = mix(uBaseColor, uTipColor, vUv.y);
@@ -200,7 +139,7 @@ const GRASS_FRAGMENT_SHADER = `
         // --- Fog ---
         // Simple manual fog or use Three.js chunk if we used ShaderMaterial properly with chunks
         // Custom fog to match sky
-        float fogFactor = smoothstep(40.0, 75.0, dist);
+        float fogFactor = smoothstep(60.0, 110.0, dist);
         vec3 fogColor = vec3(0.53, 0.81, 0.92); 
         finalColor = mix(finalColor, fogColor, fogFactor);
 
@@ -209,7 +148,7 @@ const GRASS_FRAGMENT_SHADER = `
 `;
 
 export class GrassSystem {
-    constructor(scene, terrain, count = 250000) {
+    constructor(scene, terrain, count = 150000) {
         this.scene = scene;
         this.terrain = terrain;
         this.count = count;
@@ -227,9 +166,10 @@ export class GrassSystem {
 
     init() {
         // Optimized blade geometry (fewer segments for higher count)
-        const BLADE_SEGS = 3;
-        const bladeGeo = new THREE.PlaneGeometry(0.1, 0.8, 1, BLADE_SEGS);
-        bladeGeo.translate(0, 0.4, 0); 
+        const BLADE_SEGS = 2; // Reduced segments for performance
+        // Wider and taller blades for better coverage
+        const bladeGeo = new THREE.PlaneGeometry(0.15, 1.0, 1, BLADE_SEGS);
+        bladeGeo.translate(0, 0.5, 0); 
 
         // Shape vertices for grass blade
         const posAttribute = bladeGeo.attributes.position;
@@ -255,18 +195,13 @@ export class GrassSystem {
         this.mesh = new THREE.InstancedMesh(bladeGeo, material, this.count);
         
         // CRITICAL FIX: Update bounding sphere so frustum culling doesn't hide the grass
+        // The instances are scattered over 100x100 area centered at 0
         this.mesh.geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(0,0,0), 100);
-        this.mesh.frustumCulled = false; 
+        this.mesh.frustumCulled = false; // Disable to be absolutely sure
 
         this.mesh.receiveShadow = true;
-        this.mesh.castShadow = true; 
-        
-        // Custom depth material for proper shadow casting with vertex displacement
-        this.mesh.customDepthMaterial = new THREE.ShaderMaterial({
-            vertexShader: GRASS_DEPTH_VERTEX_SHADER,
-            fragmentShader: "void main() { }", // Simple depth write
-            uniforms: this.uniforms
-        });
+        // Shadow casting for 250k instances is extremely expensive, disabling for performance
+        this.mesh.castShadow = false; 
 
         const dummy = new THREE.Object3D();
         const offsets = [];
@@ -302,7 +237,7 @@ export class GrassSystem {
         this.mesh.geometry.setAttribute('offset', new THREE.InstancedBufferAttribute(new Float32Array(offsets), 3));
         this.mesh.geometry.setAttribute('scale', new THREE.InstancedBufferAttribute(new Float32Array(scales), 1));
         this.mesh.geometry.setAttribute('rotation', new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
-        this.mesh.geometry.setAttribute('color', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
+        this.mesh.geometry.setAttribute('instColor', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
 
         this.scene.add(this.mesh);
     }

@@ -12,15 +12,15 @@ export class SkySystem {
 
         this.dirLight = new THREE.DirectionalLight(0xffffff, 1);
         this.dirLight.castShadow = true;
-        this.dirLight.shadow.mapSize.width = 4096;
-        this.dirLight.shadow.mapSize.height = 4096;
-        const d = 60; // Increased coverage
+        this.dirLight.shadow.mapSize.width = 2048;
+        this.dirLight.shadow.mapSize.height = 2048;
+        const d = 50;
         this.dirLight.shadow.camera.left = -d;
         this.dirLight.shadow.camera.right = d;
         this.dirLight.shadow.camera.top = d;
         this.dirLight.shadow.camera.bottom = -d;
-        this.dirLight.shadow.camera.far = 500; // Increased far plane for low angles
-        this.dirLight.shadow.bias = -0.00005; // Tighter bias for high res
+        this.dirLight.shadow.camera.far = 100;
+        this.dirLight.shadow.bias = -0.0001;
         this.scene.add(this.dirLight);
 
         this.ambientLight = new THREE.AmbientLight(0x222222);
@@ -63,8 +63,8 @@ export class SkySystem {
         if (elevation > 0) {
             // Brighten up the day
             const intensityFactor = Math.min(1.0, elevation / 45.0);
-            this.dirLight.intensity = 0.5 + intensityFactor * 2.0;
-            this.ambientLight.intensity = 0.4 + (intensityFactor * 0.6);
+            this.dirLight.intensity = 0.8 + intensityFactor * 1.5;
+            this.ambientLight.intensity = 0.6 + (intensityFactor * 0.4);
             
             // Sunrise/Sunset colors
             if (elevation < 10) {
@@ -74,7 +74,7 @@ export class SkySystem {
             }
         } else {
             this.dirLight.intensity = 0;
-            this.ambientLight.intensity = 0.25; // Brighter Night (moonlight)
+            this.ambientLight.intensity = 0.4; // Brighter Night (moonlight)
         }
     }
 

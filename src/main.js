@@ -6,6 +6,15 @@ import { SkySystem } from './sky.js';
 import { InteractionSystem } from './interaction.js';
 import { AudioSystem } from './audio.js';
 
+// Suppress duplicate XR session request errors
+window.addEventListener('unhandledrejection', (event) => {
+    if (event.reason && typeof event.reason.message === 'string' && 
+        (event.reason.message.includes('OfferSession') || event.reason.message.includes('called more than once'))) {
+        event.preventDefault();
+        console.log('Ignored duplicate XR session request');
+    }
+});
+
 class App {
     constructor() {
         this.container = document.getElementById('canvas-container');
