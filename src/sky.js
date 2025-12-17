@@ -14,7 +14,7 @@ export class SkySystem {
         this.dirLight.castShadow = true;
         this.dirLight.shadow.mapSize.width = 1024;
         this.dirLight.shadow.mapSize.height = 1024;
-        const d = 60; // Increased coverage
+        const d = 25; // Tight fit for VR performance/quality balance
         this.dirLight.shadow.camera.left = -d;
         this.dirLight.shadow.camera.right = d;
         this.dirLight.shadow.camera.top = d;
@@ -22,6 +22,7 @@ export class SkySystem {
         this.dirLight.shadow.camera.far = 500; // Increased far plane for low angles
         this.dirLight.shadow.bias = -0.00005; // Tighter bias for high res
         this.scene.add(this.dirLight);
+        this.scene.add(this.dirLight.target); // Needed for following camera
 
         this.ambientLight = new THREE.AmbientLight(0x222222);
         this.scene.add(this.ambientLight);
@@ -78,7 +79,7 @@ export class SkySystem {
         }
     }
 
-    update(dt) {
+    update(dt, cameraPos) {
         // Day/Night Cycle - 24 minutes = 1440 seconds
         this.time += dt;
         const cycleDuration = 1440; 
@@ -92,6 +93,13 @@ export class SkySystem {
         this.effectController.elevation = Math.sin((cycleProgress - 0.25) * Math.PI * 2) * 50 + 30; 
         
         this.updateSky();
+
+        // Shadow follower
+        if (cameraPos) {
+            this.dirLight.target.position.set(cameraPos.x, 0, cameraPos.z);
+            // Re-offset light to maintain direction (Far distance to minimize parallax)
+            this.dirLight.position.copy(this.sun).multiplyScalar(500).add(this.dirLight.target.position);
+        }
     }
 }
 

@@ -40,8 +40,8 @@ class App {
         // Detect potential mobile/VR for initial settings
         const isMobile = /Android|iPhone|iPad|iPod|Quest|Mobile/i.test(navigator.userAgent);
         
-        // Extremely high density allowed due to strict CPU culling of chunks
-        const grassCount = isMobile ? 600000 : 3500000; 
+        // Optimized density for VR performance vs Visuals
+        const grassCount = isMobile ? 300000 : 1500000; 
         
         this.grass = new GrassSystem(this.scene, this.terrain, grassCount); 
         this.grass.init();
@@ -81,7 +81,8 @@ class App {
 
     optimizeForVR() {
         // Aggressive optimization for VR
-        this.renderer.xr.setFramebufferScaleFactor(0.7);
+        this.renderer.xr.setFramebufferScaleFactor(0.75);
+        this.renderer.xr.setFoveation(1.0); // High foveation for Quest
     }
 
     restoreQuality() {
@@ -92,7 +93,7 @@ class App {
         const dt = this.clock.getDelta();
 
         // Update Systems
-        this.skySystem.update(dt);
+        this.skySystem.update(dt, this.camera.position);
         
         const handPoints = this.interaction.update();
         

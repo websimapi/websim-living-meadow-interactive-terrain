@@ -65,7 +65,7 @@ export class InteractionSystem {
         this.controllers.forEach(controller => {
             if (controller.visible && this.interactionPoints.length < 20) {
                 // Controller is a larger interactor
-                this.interactionPoints.push(new THREE.Vector4(controller.position.x, controller.position.y, controller.position.z, 0.12));
+                this.interactionPoints.push(new THREE.Vector4(controller.position.x, controller.position.y, controller.position.z, 0.08));
             }
         });
         

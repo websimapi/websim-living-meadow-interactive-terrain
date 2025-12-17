@@ -27,8 +27,8 @@ const GRASS_VERTEX_SHADER = `
         float dist = distance(offset, uCameraPosition);
         
         // Smooth distance scaling
-        // Full size until 15m, then fade to 0 at 25m for smoother edge
-        float distScale = 1.0 - smoothstep(15.0, 25.0, dist);
+        // Full size until 12m, then fade to 0 at 20m for smoother edge
+        float distScale = 1.0 - smoothstep(12.0, 20.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
@@ -92,25 +92,34 @@ const GRASS_VERTEX_SHADER = `
                         if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
 
                         // Accumulate displacement (weighted by bend so roots don't move)
-                        totalDisp += pushDir * force * 1.5 * bend;
+                        // Clamped accumulation to prevent explosion
+                        totalDisp += pushDir * force * 1.2 * bend;
                     }
                 }
             }
         }
 
         // Apply Physics-based Bending
-        if(length(totalDisp) > 0.001) {
+        float dispLen = length(totalDisp);
+        if(dispLen > 0.001) {
+            // Cap displacement
+            if(dispLen > 1.0) totalDisp = normalize(totalDisp) * 1.0;
+
             vec3 prevPos = pos;
             
             // Apply horizontal displacement
             pos.xz += totalDisp.xz;
             
-            // Constrain Length (Bend instead of stretch/squish)
-            // Restore the distance from pivot (0,0,0) to what it was before interaction
+            // High quality length constraint (Bend preservation)
             float targetLen = length(prevPos);
-            if(targetLen > 0.001) {
-                pos = normalize(pos) * targetLen;
+            float newLen = length(pos);
+            if(newLen > 0.001) {
+                // Slerp-like adjustment for better curve preservation
+                pos = pos * (targetLen / newLen);
             }
+            
+            // Add slight Y compression when bent heavily
+            pos.y *= 1.0 - (dispLen * 0.2 * bend);
         }
         
         // --- Output ---
@@ -139,7 +148,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         // Distance Culling Match
         float dist = distance(offset, uCameraPosition);
         
-        float distScale = 1.0 - smoothstep(15.0, 25.0, dist);
+        float distScale = 1.0 - smoothstep(12.0, 20.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
@@ -189,19 +198,23 @@ const GRASS_DEPTH_VERTEX_SHADER = `
                         vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
                         if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
 
-                        totalDisp += pushDir * force * 1.5 * bend;
+                        totalDisp += pushDir * force * 1.2 * bend;
                     }
                 }
             }
         }
 
-        if(length(totalDisp) > 0.001) {
+        float dispLen = length(totalDisp);
+        if(dispLen > 0.001) {
+            if(dispLen > 1.0) totalDisp = normalize(totalDisp) * 1.0;
             vec3 prevPos = pos;
             pos.xz += totalDisp.xz;
             float targetLen = length(prevPos);
-            if(targetLen > 0.001) {
-                pos = normalize(pos) * targetLen;
+            float newLen = length(pos);
+            if(newLen > 0.001) {
+                pos = pos * (targetLen / newLen);
             }
+            pos.y *= 1.0 - (dispLen * 0.2 * bend);
         }
         
         vec4 worldPosition = vec4(pos + offset, 1.0);
@@ -287,19 +300,18 @@ export class GrassSystem {
         };
         
         // Chunk config
-        this.chunkSize = 8; // Smaller chunks for finer culling
+        this.chunkSize = 5; // Smaller chunks for very tight culling in VR
         this.terrainSize = 100;
-        this.maxRenderDist = 25.0; // Increased slightly for better visuals, balanced with smoother fade
+        this.maxRenderDist = 20.0; // Reduced for VR performance
     }
 
     init() {
         // --- Improved Blade Geometry ---
-        // Higher resolution for better LOD close up
-        // 5 segments width for nicer curve
-        // 7 segments height for smoother bending
+        // Optimized Geometry for VR (Significant vertex reduction)
         const bladeW = 0.12; 
         const bladeH = 0.8; 
-        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 5, 7);
+        // Reduced segments: 2 width (3 verts), 4 height (5 verts) -> ~15 verts vs ~48
+        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 2, 4);
         
         // Modify shape
         const posAttr = baseGeometry.attributes.position;
@@ -413,9 +425,24 @@ export class GrassSystem {
                 chunkGeo.setAttribute('rotation', new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
                 chunkGeo.setAttribute('color', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
                 
-                // Set Bounding Sphere for Culling on the specific geometry
-                const center = new THREE.Vector3(x + this.chunkSize/2, 0, z + this.chunkSize/2);
-                chunkGeo.boundingSphere = new THREE.Sphere(center, this.chunkSize * 0.8);
+                // Calculate accurate bounding sphere for Frustum Culling
+                let minY = Infinity;
+                let maxY = -Infinity;
+                for(let i=0; i<offsets.length; i+=3) {
+                    const yVal = offsets[i+1];
+                    if(yVal < minY) minY = yVal;
+                    if(yVal > maxY) maxY = yVal;
+                }
+                const midY = (minY + maxY) / 2;
+                const height = maxY - minY;
+                
+                // Center matches chunk center + terrain height average
+                const center = new THREE.Vector3(x + this.chunkSize/2, midY, z + this.chunkSize/2);
+                
+                // Radius covers corners + max height deviation + grass height
+                const radius = (this.chunkSize * 0.71) + (height / 2) + 1.0; 
+                
+                chunkGeo.boundingSphere = new THREE.Sphere(center, radius);
 
                 // Metadata for CPU culling
                 mesh.userData = {
