@@ -20,6 +20,7 @@ export class AudioSystem {
         const bufferSize = 2 * this.ctx.sampleRate;
         const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
         const output = noiseBuffer.getChannelData(0);
+        let lastOut = 0;
         
         for (let i = 0; i < bufferSize; i++) {
             const white = Math.random() * 2 - 1;
@@ -27,7 +28,6 @@ export class AudioSystem {
             lastOut = output[i];
             output[i] *= 3.5; 
         }
-        let lastOut = 0;
 
         const noiseSrc = this.ctx.createBufferSource();
         noiseSrc.buffer = noiseBuffer;
