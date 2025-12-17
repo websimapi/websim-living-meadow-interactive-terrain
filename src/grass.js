@@ -27,8 +27,8 @@ const GRASS_VERTEX_SHADER = `
         // --- LOD/Distance Culling ---
         float dist = distance(offset, uCameraPosition);
         
-        // Aggressive VR Culling: Fade out between 10m and 15m
-        float distScale = 1.0 - smoothstep(10.0, 15.0, dist);
+        // Aggressive VR Culling: Fade out between 6m and 10m for extreme performance
+        float distScale = 1.0 - smoothstep(6.0, 10.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0); 
@@ -59,19 +59,17 @@ const GRASS_VERTEX_SHADER = `
         float wind = sin(t * 0.5 + worldBasePos.x * 0.05 + worldBasePos.z * 0.05) * 0.5 +
                      sin(t * 1.5 + worldBasePos.x * 0.1 + worldBasePos.z * 0.2) * 0.2;
         
-        // Wind applies to local x/z before rotation in some models, but applying after is cleaner
         float windBend = uv.y * uv.y;
         pos.x += wind * windBend * 0.5;
         pos.z += wind * windBend * 0.2;
 
-        // --- 3. Stick Physics & Collision (World Space) ---
-        vec3 worldPos = pos + offset;
-        vec3 totalDisp = vec3(0.0);
+        // --- 3. Stick Physics & Bending (Global Blade Interaction) ---
+        // We interact with the "Stalk" root to ensure the whole blade responds together
+        // preventing independent vertex distortion ("dents").
         
-        // We use a linear bend mask for collision to ensure top moves fully
-        // Using smoothstep keeps root stiff
-        float collisionMask = smoothstep(0.05, 1.0, uv.y);
-
+        vec3 worldPos = pos + offset;
+        vec3 totalPush = vec3(0.0);
+        
         for(int i=0; i<20; i++) {
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
@@ -80,39 +78,52 @@ const GRASS_VERTEX_SHADER = `
                 vec3 intPos = interactor.xyz;
                 vec3 intVel = uInteractorVelocities[i].xyz;
                 
-                vec3 dir = worldPos - intPos;
-                float d = length(dir);
+                // 1. Distance check XZ (Cylinder around grass root)
+                vec2 dirXZ = worldBasePos.xz - intPos.xz;
+                float d = length(dirXZ);
                 
-                // Stick / Drag Physics (Velocity Field)
-                // If close to finger, get dragged along
-                if (d < radius * 2.0) {
-                    float influence = 1.0 - (d / (radius * 2.0));
-                    influence = smoothstep(0.0, 1.0, influence);
-                    
-                    // Velocity impact ("Friction" / "Sticky")
-                    // This allows brushing through grass
-                    totalDisp += intVel * influence * 0.2; 
-                }
+                // Interaction Radius: Finger Radius + Influence Padding (0.2m)
+                float influenceRad = radius + 0.2; 
+                
+                // 2. Height check (Roughly within grass height range)
+                float relY = intPos.y - worldBasePos.y;
+                bool withinHeight = relY > -0.3 && relY < 1.0; 
 
-                // Hard Collision (Sphere Projection)
-                // If inside sphere, Project OUT to surface
-                // We assume collision happens after drag
-                vec3 tentativePos = worldPos + totalDisp;
-                vec3 tDir = tentativePos - intPos;
-                float tD = length(tDir);
-                
-                if (tD < radius) {
-                    vec3 pushDir = normalize(tDir);
-                    float overlap = radius - tD;
-                    // Add direct offset to resolve collision
-                    totalDisp += pushDir * overlap; 
+                if (d < influenceRad && withinHeight) {
+                    float power = 1.0 - (d / influenceRad);
+                    power = power * power; // Quadratic falloff for smooth interaction
+                    
+                    vec2 pushDir = normalize(dirXZ);
+                    if (length(dirXZ) < 0.0001) pushDir = vec2(1.0, 0.0);
+                    
+                    // Velocity Drag (follow the finger motion)
+                    totalPush.xz += intVel.xz * power * 0.1;
+                    
+                    // Repulsion (Push away from finger center)
+                    // Strong push to ensure visual clearance
+                    totalPush.xz += pushDir * power * 1.2;
                 }
             }
         }
         
-        // Apply accumulated physics
-        // Constrain so root doesn't detach (collisionMask)
-        worldPos += totalDisp * collisionMask;
+        // Clamp force to prevent exploding geometry
+        float pushLen = length(totalPush);
+        if(pushLen > 1.5) totalPush = normalize(totalPush) * 1.5;
+
+        // Apply Bending: Curve based on height squared
+        // This ensures the top moves significantly more than the bottom ("Bends from top down")
+        float bendFactor = uv.y * uv.y; 
+        vec3 finalDisp = totalPush * bendFactor;
+        
+        worldPos += finalDisp;
+        
+        // Length Preservation (Arc approximation)
+        // As it bends outward (XZ), lower the Y to simulate constant length
+        float dispMag = length(finalDisp.xz);
+        worldPos.y -= dispMag * 0.6 * uv.y; 
+        
+        // Prevent going below terrain
+        if(worldPos.y < offset.y) worldPos.y = offset.y;
 
         // --- Output ---
         vWorldPosition = worldPos;
@@ -137,7 +148,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     
     void main() {
         float dist = distance(offset, uCameraPosition);
-        float distScale = 1.0 - smoothstep(10.0, 15.0, dist);
+        float distScale = 1.0 - smoothstep(6.0, 10.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
@@ -164,9 +175,8 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         pos.z += wind * windBend * 0.2;
 
         vec3 worldPos = pos + offset;
-        vec3 totalDisp = vec3(0.0);
-        float collisionMask = smoothstep(0.05, 1.0, uv.y);
-
+        vec3 totalPush = vec3(0.0);
+        
         for(int i=0; i<20; i++) {
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
@@ -174,28 +184,34 @@ const GRASS_DEPTH_VERTEX_SHADER = `
                 vec3 intPos = interactor.xyz;
                 vec3 intVel = uInteractorVelocities[i].xyz;
                 
-                vec3 dir = worldPos - intPos;
-                float d = length(dir);
-                
-                if (d < radius * 2.0) {
-                    float influence = 1.0 - (d / (radius * 2.0));
-                    influence = smoothstep(0.0, 1.0, influence);
-                    totalDisp += intVel * influence * 0.2; 
-                }
+                vec2 dirXZ = worldBasePos.xz - intPos.xz;
+                float d = length(dirXZ);
+                float influenceRad = radius + 0.2; 
+                float relY = intPos.y - worldBasePos.y;
 
-                vec3 tentativePos = worldPos + totalDisp;
-                vec3 tDir = tentativePos - intPos;
-                float tD = length(tDir);
-                
-                if (tD < radius) {
-                    vec3 pushDir = normalize(tDir);
-                    float overlap = radius - tD;
-                    totalDisp += pushDir * overlap; 
+                if (d < influenceRad && relY > -0.3 && relY < 1.0) {
+                    float power = 1.0 - (d / influenceRad);
+                    power = power * power; 
+                    
+                    vec2 pushDir = normalize(dirXZ);
+                    if (length(dirXZ) < 0.0001) pushDir = vec2(1.0, 0.0);
+                    
+                    totalPush.xz += intVel.xz * power * 0.1;
+                    totalPush.xz += pushDir * power * 1.2;
                 }
             }
         }
         
-        worldPos += totalDisp * collisionMask;
+        float pushLen = length(totalPush);
+        if(pushLen > 1.5) totalPush = normalize(totalPush) * 1.5;
+
+        float bendFactor = uv.y * uv.y; 
+        vec3 finalDisp = totalPush * bendFactor;
+        
+        worldPos += finalDisp;
+        float dispMag = length(finalDisp.xz);
+        worldPos.y -= dispMag * 0.6 * uv.y; 
+        if(worldPos.y < offset.y) worldPos.y = offset.y;
         
         gl_Position = projectionMatrix * viewMatrix * vec4(worldPos, 1.0);
     }
@@ -282,7 +298,7 @@ export class GrassSystem {
         // Chunk config
         this.chunkSize = 5; // Smaller chunks for very tight culling in VR
         this.terrainSize = 100;
-        this.maxRenderDist = 15.0; // Highly optimized for mobile VR
+        this.maxRenderDist = 10.0; // Highly optimized for mobile VR
     }
 
     init() {
