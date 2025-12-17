@@ -25,21 +25,10 @@ const GRASS_VERTEX_SHADER = `
         
         // --- LOD/Distance Culling ---
         float dist = distance(offset, uCameraPosition);
-        float maxDist = 16.0; // Reduced render distance as requested
         
-        // Stochastic Density Culling (LOD)
-        // Fade density from 100% at 4m to 0% at 16m
-        // This aggressively thins out grass further away
-        float density = 1.0 - smoothstep(4.0, 16.0, dist);
-        float rnd = fract(sin(dot(offset.xz, vec2(12.9898, 78.233))) * 43758.5453);
-        
-        if (rnd > density) {
-            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-            return;
-        }
-
-        // Scale fade for remaining blades near the edge to prevent popping
-        float distScale = 1.0 - smoothstep(12.0, 16.0, dist);
+        // Smooth distance scaling
+        // Full size until 15m, then fade to 0 at 25m for smoother edge
+        float distScale = 1.0 - smoothstep(15.0, 25.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
@@ -82,36 +71,45 @@ const GRASS_VERTEX_SHADER = `
 
         // --- Interaction ---
         vec3 globalPos = pos + worldBasePos;
+        vec3 totalDisp = vec3(0.0);
+        
         for(int i=0; i<20; i++) {
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
             vec3 intPos = interactor.xyz;
             
-            // Optimization: Skip empty slots (assuming 0,0,0 is invalid or we check radius)
             if(radius > 0.0) {
                 vec3 diff = globalPos - intPos;
                 float distSq = dot(diff, diff);
                 
                 // Broad phase check
-                if(distSq < (radius * radius * 4.0)) { // Check slightly larger area
+                if(distSq < (radius * radius * 4.0)) { 
                     float d = sqrt(distSq);
                     
                     if(d < radius) {
-                        // Harder collision response for "solid flesh" feel
-                        float force = smoothstep(radius, radius * 0.3, d); // 1.0 at center, 0.0 at radius
-                        
+                        float force = smoothstep(radius, radius * 0.3, d);
                         vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
                         if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
 
-                        // Significant displacement
-                        float disp = force * 0.8 * bend; // Max displacement amount
-                        pos.x += pushDir.x * disp;
-                        pos.z += pushDir.z * disp;
-                        
-                        // Squish down logic
-                        pos.y *= (1.0 - force * 0.7);
+                        // Accumulate displacement (weighted by bend so roots don't move)
+                        totalDisp += pushDir * force * 1.5 * bend;
                     }
                 }
+            }
+        }
+
+        // Apply Physics-based Bending
+        if(length(totalDisp) > 0.001) {
+            vec3 prevPos = pos;
+            
+            // Apply horizontal displacement
+            pos.xz += totalDisp.xz;
+            
+            // Constrain Length (Bend instead of stretch/squish)
+            // Restore the distance from pivot (0,0,0) to what it was before interaction
+            float targetLen = length(prevPos);
+            if(targetLen > 0.001) {
+                pos = normalize(pos) * targetLen;
             }
         }
         
@@ -141,16 +139,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         // Distance Culling Match
         float dist = distance(offset, uCameraPosition);
         
-        // Stochastic Density Culling (Match main shader)
-        float density = 1.0 - smoothstep(4.0, 16.0, dist);
-        float rnd = fract(sin(dot(offset.xz, vec2(12.9898, 78.233))) * 43758.5453);
-        
-        if (rnd > density) {
-            gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
-            return;
-        }
-
-        float distScale = 1.0 - smoothstep(12.0, 16.0, dist);
+        float distScale = 1.0 - smoothstep(15.0, 25.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
@@ -180,6 +169,8 @@ const GRASS_DEPTH_VERTEX_SHADER = `
         pos.z += wind * bend * 0.2;
 
         vec3 globalPos = pos + worldBasePos;
+        vec3 totalDisp = vec3(0.0);
+        
         for(int i=0; i<20; i++) {
             vec4 interactor = uInteractors[i];
             float radius = interactor.w;
@@ -188,17 +179,28 @@ const GRASS_DEPTH_VERTEX_SHADER = `
             if(radius > 0.0) {
                 vec3 diff = globalPos - intPos;
                 float distSq = dot(diff, diff);
-                if(distSq < (radius * radius)) {
+                
+                // Broad phase check
+                if(distSq < (radius * radius * 4.0)) { 
                     float d = sqrt(distSq);
-                    float force = smoothstep(radius, radius * 0.3, d);
-                    vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
-                    if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
                     
-                    float disp = force * 0.8 * bend;
-                    pos.x += pushDir.x * disp;
-                    pos.z += pushDir.z * disp;
-                    pos.y *= (1.0 - force * 0.7);
+                    if(d < radius) {
+                        float force = smoothstep(radius, radius * 0.3, d);
+                        vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
+                        if(length(vec3(diff.x, 0.0, diff.z)) < 0.001) pushDir = vec3(1.0, 0.0, 0.0);
+
+                        totalDisp += pushDir * force * 1.5 * bend;
+                    }
                 }
+            }
+        }
+
+        if(length(totalDisp) > 0.001) {
+            vec3 prevPos = pos;
+            pos.xz += totalDisp.xz;
+            float targetLen = length(prevPos);
+            if(targetLen > 0.001) {
+                pos = normalize(pos) * targetLen;
             }
         }
         
@@ -287,7 +289,7 @@ export class GrassSystem {
         // Chunk config
         this.chunkSize = 8; // Smaller chunks for finer culling
         this.terrainSize = 100;
-        this.maxRenderDist = 20.0; // Reduced render radius to match new shader constraints
+        this.maxRenderDist = 25.0; // Increased slightly for better visuals, balanced with smoother fade
     }
 
     init() {

@@ -54,8 +54,8 @@ export class InteractionSystem {
                         const pos = new THREE.Vector3();
                         joint.getWorldPosition(pos);
                         // Store position and radius (w component)
-                        // Radius of 0.08 is about 8cm interaction sphere, tight enough for fingers
-                        this.interactionPoints.push(new THREE.Vector4(pos.x, pos.y, pos.z, 0.08)); 
+                        // Radius of 0.04 (4cm) for precise finger interaction
+                        this.interactionPoints.push(new THREE.Vector4(pos.x, pos.y, pos.z, 0.04)); 
                     }
                 });
             }
@@ -65,7 +65,7 @@ export class InteractionSystem {
         this.controllers.forEach(controller => {
             if (controller.visible && this.interactionPoints.length < 20) {
                 // Controller is a larger interactor
-                this.interactionPoints.push(new THREE.Vector4(controller.position.x, controller.position.y, controller.position.z, 0.15));
+                this.interactionPoints.push(new THREE.Vector4(controller.position.x, controller.position.y, controller.position.z, 0.12));
             }
         });
         
