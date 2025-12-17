@@ -17,13 +17,15 @@ class App {
 
         // Camera
         this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 200);
-        this.camera.position.set(0, 1.7, 5); // Eye level
+        // Start user at 0,0 (now leveled) with standard eye height
+        this.camera.position.set(0, 1.6, 0); 
 
         // Renderer
         this.renderer = new THREE.WebGLRenderer({ antialias: true });
         this.renderer.setPixelRatio(window.devicePixelRatio);
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.xr.enabled = true;
+        this.renderer.xr.setReferenceSpaceType('local-floor');
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -35,7 +37,7 @@ class App {
         this.terrain = new Terrain(this.scene);
         this.terrainMesh = this.terrain.init();
 
-        this.grass = new GrassSystem(this.scene, this.terrain); // Defaults to 100k
+        this.grass = new GrassSystem(this.scene, this.terrain, 800000); // High density
         this.grass.init();
 
         this.skySystem = new SkySystem(this.scene, this.renderer);
@@ -74,7 +76,7 @@ class App {
     optimizeForVR() {
         // VR Optimization: Reduce workload for high-framerate stereo rendering
         this.originalGrassCount = this.grass.mesh.count;
-        this.grass.mesh.count = 80000; // Reduce grass count significantly for VR
+        this.grass.mesh.count = 250000; // Denser grass for VR
         this.renderer.xr.setFramebufferScaleFactor(0.85); // Mild resolution reduction
     }
 

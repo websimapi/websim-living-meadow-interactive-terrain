@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Perlin } from './utils.js';
 
 const GRASS_VERTEX_SHADER = `
     precision highp float;
@@ -244,8 +245,8 @@ export class GrassSystem {
 
     init() {
         // Optimized blade geometry (fewer segments for higher count)
-        const BLADE_SEGS = 3;
-        const bladeGeo = new THREE.PlaneGeometry(0.1, 0.8, 1, BLADE_SEGS);
+        const BLADE_SEGS = 2; // Reduce segments for performance with high count
+        const bladeGeo = new THREE.PlaneGeometry(0.14, 0.8, 1, BLADE_SEGS); // Wider for density
         bladeGeo.translate(0, 0.4, 0); 
 
         // Shape vertices for grass blade
@@ -301,7 +302,22 @@ export class GrassSystem {
             const y = this.terrain.getHeightAt(x, z);
 
             offsets.push(x, y, z);
-            scales.push(0.5 + Math.random() * 0.7); 
+            
+            // Height variation for "grass at feet" with "taller kneegrass patches"
+            // Use noise for patches
+            const noise = Perlin.noise(x * 0.15, 0, z * 0.15);
+            
+            // Base: 0.25 - 0.4 (Short, feet level)
+            // Patches: 0.6 - 1.0 (Knee level)
+            let scale = 0.3 + Math.random() * 0.1; 
+            
+            if (noise > 0.1) {
+                // Smooth transition to taller grass
+                const t = Math.min(1.0, (noise - 0.1) * 2.0);
+                scale = 0.3 + t * (0.5 + Math.random() * 0.3);
+            }
+
+            scales.push(scale); 
             rotations.push(Math.random() * Math.PI * 2); 
             
             // Color variation

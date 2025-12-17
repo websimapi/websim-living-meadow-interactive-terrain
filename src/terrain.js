@@ -11,6 +11,12 @@ export class Terrain {
     }
 
     init() {
+        // Calculate offset to ensure (0,0) is at y=0 for VR comfort
+        this.yOffset = 
+            Perlin.noise(0, 0, 0) * 3.0 +    
+            Perlin.noise(0, 10, 0) * 0.5 +    
+            Perlin.noise(0, 20, 0) * 0.1;
+
         // High geometric complexity near center, progressive simplification handled by Geometry
         // We use a high segment plane for the ground
         const geometry = new THREE.PlaneGeometry(this.width, this.depth, this.resolution, this.resolution);
@@ -29,7 +35,7 @@ export class Terrain {
                 Perlin.noise(x * 0.1, 10, z * 0.1) * 0.5 +    // Medium details
                 Perlin.noise(x * 0.5, 20, z * 0.5) * 0.1;     // Micro variations
 
-            vertices[i + 1] = elevation;
+            vertices[i + 1] = elevation - this.yOffset;
         }
 
         geometry.computeVertexNormals();
@@ -75,9 +81,10 @@ export class Terrain {
     getHeightAt(x, z) {
         // Helper to get terrain height at specific coordinates for placing grass
         // mirroring the noise function in init
-         return Perlin.noise(x * 0.03, 0, z * 0.03) * 3.0 +    
+         const h = Perlin.noise(x * 0.03, 0, z * 0.03) * 3.0 +    
                 Perlin.noise(x * 0.1, 10, z * 0.1) * 0.5 +    
-                Perlin.noise(x * 0.5, 20, z * 0.5) * 0.1; 
+                Perlin.noise(x * 0.5, 20, z * 0.5) * 0.1;
+         return h - (this.yOffset || 0);
     }
 }
 
