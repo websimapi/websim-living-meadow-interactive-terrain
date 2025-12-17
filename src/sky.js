@@ -12,8 +12,8 @@ export class SkySystem {
 
         this.dirLight = new THREE.DirectionalLight(0xffffff, 1);
         this.dirLight.castShadow = true;
-        this.dirLight.shadow.mapSize.width = 2048;
-        this.dirLight.shadow.mapSize.height = 2048;
+        this.dirLight.shadow.mapSize.width = 1024;
+        this.dirLight.shadow.mapSize.height = 1024;
         const d = 60; // Increased coverage
         this.dirLight.shadow.camera.left = -d;
         this.dirLight.shadow.camera.right = d;

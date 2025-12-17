@@ -37,8 +37,11 @@ class App {
         this.terrain = new Terrain(this.scene);
         this.terrainMesh = this.terrain.init();
 
-        // Massive density increase, handled by chunking system
-        this.grass = new GrassSystem(this.scene, this.terrain, 1500000); 
+        // Detect potential mobile/VR for initial settings
+        const isMobile = /Android|iPhone|iPad|iPod|Quest|Mobile/i.test(navigator.userAgent);
+        const grassCount = isMobile ? 150000 : 300000;
+        
+        this.grass = new GrassSystem(this.scene, this.terrain, grassCount); 
         this.grass.init();
 
         this.skySystem = new SkySystem(this.scene, this.renderer);
@@ -75,9 +78,8 @@ class App {
     }
 
     optimizeForVR() {
-        // With chunking, we rely on frustum culling. 
-        // Just reduce resolution slightly for fill-rate performance.
-        this.renderer.xr.setFramebufferScaleFactor(0.85);
+        // Aggressive optimization for VR
+        this.renderer.xr.setFramebufferScaleFactor(0.7);
     }
 
     restoreQuality() {

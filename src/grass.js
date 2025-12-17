@@ -74,19 +74,19 @@ const GRASS_VERTEX_SHADER = `
                     float dist = sqrt(distSq);
                     
                     // Precise Interaction Radius
-                    float radius = 0.5;
+                    float radius = 0.8;
                     if(dist < radius) {
                         float force = (1.0 - dist / radius);
-                        force = force * force; // Smooth quadratic falloff
+                        force = force * force; 
 
                         // Push horizontally away from center of interactor
                         vec3 pushDir = normalize(vec3(diff.x, 0.0, diff.z));
                         
                         // Push Downward
-                        float pushDown = -0.6 * force;
+                        float pushDown = -0.8 * force;
                         
                         // Apply
-                        pos += pushDir * force * 1.0 * bend;
+                        pos += pushDir * force * 1.5 * bend;
                         pos.y += pushDown * bend;
                     }
                 }
@@ -207,7 +207,7 @@ const GRASS_FRAGMENT_SHADER = `
         spec = pow(spec, 32.0) * 0.2; 
 
         // Ambient
-        vec3 ambient = vec3(0.2, 0.3, 0.2); // Slightly greener ambient
+        vec3 ambient = vec3(0.25, 0.35, 0.25); // Slightly brighter/greener ambient
 
         vec3 lighting = ambient + (diff * vec3(1.0, 0.95, 0.8)) + (translucency * vec3(0.6, 0.8, 0.2)) + spec;
         
@@ -248,14 +248,13 @@ export class GrassSystem {
         // --- Improved Blade Geometry ---
         // 2 segments width (3 verts) to allow "cupping" (curved cross-section)
         // 3 segments height for smooth bending
-        const bladeW = 0.12;
+        const bladeW = 0.15; // Increased width for better coverage
         const bladeH = 0.8;
-        const geometry = new THREE.PlaneGeometry(bladeW, bladeH, 2, 3);
+        const baseGeometry = new THREE.PlaneGeometry(bladeW, bladeH, 2, 3);
         
         // Modify shape
-        const posAttr = geometry.attributes.position;
+        const posAttr = baseGeometry.attributes.position;
         // Vertices order in PlaneGeo (wSeg=2, hSeg=3) -> 3 columns, 4 rows. Total 12 verts.
-        // Columns: x = -w/2, 0, w/2.
         
         for(let i=0; i < posAttr.count; i++) {
             let x = posAttr.getX(i);
@@ -271,17 +270,16 @@ export class GrassSystem {
             x *= taper;
             
             // Curve cross-section (cupping)
-            // If x is not 0 (edges), pull z back
-            const xNorm = x / (bladeW * 0.5); // -1 to 1 roughly
-            const cup = Math.abs(xNorm) * 0.05; // 5cm curve depth? No, 0.05 units
-            z += cup * (y / bladeH); // Cup more at top? Or uniform? Uniform is fine.
+            const xNorm = x / (bladeW * 0.5); 
+            const cup = Math.abs(xNorm) * 0.05; 
+            z += cup * (y / bladeH); 
             
             // Curve blade along length (slight natural bend)
             z += Math.pow(y / bladeH, 2.0) * 0.1;
 
             posAttr.setXYZ(i, x, y, z);
         }
-        geometry.computeVertexNormals();
+        baseGeometry.computeVertexNormals();
 
         // Material
         const material = new THREE.ShaderMaterial({
@@ -310,7 +308,9 @@ export class GrassSystem {
         for (let x = -halfSize; x < halfSize; x += this.chunkSize) {
             for (let z = -halfSize; z < halfSize; z += this.chunkSize) {
                 
-                const mesh = new THREE.InstancedMesh(geometry, material, countPerChunk);
+                // Clone geometry per chunk to allow unique attributes
+                const chunkGeo = baseGeometry.clone();
+                const mesh = new THREE.InstancedMesh(chunkGeo, material, countPerChunk);
                 mesh.customDepthMaterial = depthMaterial;
                 mesh.castShadow = true;
                 mesh.receiveShadow = true;
@@ -356,20 +356,14 @@ export class GrassSystem {
                     mesh.setMatrixAt(i, dummy.matrix); // Identity, we use attributes
                 }
                 
-                mesh.geometry.setAttribute('offset', new THREE.InstancedBufferAttribute(new Float32Array(offsets), 3));
-                mesh.geometry.setAttribute('scale', new THREE.InstancedBufferAttribute(new Float32Array(scales), 1));
-                mesh.geometry.setAttribute('rotation', new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
-                mesh.geometry.setAttribute('color', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
+                chunkGeo.setAttribute('offset', new THREE.InstancedBufferAttribute(new Float32Array(offsets), 3));
+                chunkGeo.setAttribute('scale', new THREE.InstancedBufferAttribute(new Float32Array(scales), 1));
+                chunkGeo.setAttribute('rotation', new THREE.InstancedBufferAttribute(new Float32Array(rotations), 1));
+                chunkGeo.setAttribute('color', new THREE.InstancedBufferAttribute(new Float32Array(colors), 3));
                 
-                // Set Bounding Sphere for Culling
-                // Center of chunk is x + 5, z + 5
-                // Radius ~ 8 (diagonal of 5x5 is 7.07)
-                // Use slightly larger radius to account for blade height and lean
+                // Set Bounding Sphere for Culling on the specific geometry
                 const center = new THREE.Vector3(x + this.chunkSize/2, 0, z + this.chunkSize/2);
-                // We need Y center roughly. Average height? 
-                // Terrain height varies. Let's use a large radius for Y safety or compute it.
-                // For simplicity, sphere at y=0 with radius 15 covers 10x10 chunk + some height variation nicely
-                mesh.geometry.boundingSphere = new THREE.Sphere(center, 12);
+                chunkGeo.boundingSphere = new THREE.Sphere(center, 12);
 
                 this.scene.add(mesh);
                 this.meshes.push(mesh);
