@@ -6,15 +6,6 @@ import { SkySystem } from './sky.js';
 import { InteractionSystem } from './interaction.js';
 import { AudioSystem } from './audio.js';
 
-// Suppress duplicate XR session request errors
-window.addEventListener('unhandledrejection', (event) => {
-    if (event.reason && typeof event.reason.message === 'string' && 
-        (event.reason.message.includes('OfferSession') || event.reason.message.includes('called more than once'))) {
-        event.preventDefault();
-        console.log('Ignored duplicate XR session request');
-    }
-});
-
 class App {
     constructor() {
         this.container = document.getElementById('canvas-container');
@@ -56,7 +47,16 @@ class App {
         
         // Start Sound on user interaction (if not VR)
         window.addEventListener('click', () => this.audio.init(), { once: true });
-        this.renderer.xr.addEventListener('sessionstart', () => this.audio.init());
+        
+        // VR Session Handling
+        this.renderer.xr.addEventListener('sessionstart', () => {
+            this.audio.init();
+            this.optimizeForVR();
+        });
+        
+        this.renderer.xr.addEventListener('sessionend', () => {
+            this.restoreQuality();
+        });
 
         // Clock
         this.clock = new THREE.Clock();
@@ -69,6 +69,20 @@ class App {
         this.camera.aspect = window.innerWidth / window.innerHeight;
         this.camera.updateProjectionMatrix();
         this.renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    optimizeForVR() {
+        // VR Optimization: Reduce workload for high-framerate stereo rendering
+        this.originalGrassCount = this.grass.mesh.count;
+        this.grass.mesh.count = 80000; // Reduce grass count significantly for VR
+        this.renderer.xr.setFramebufferScaleFactor(0.85); // Mild resolution reduction
+    }
+
+    restoreQuality() {
+        if (this.originalGrassCount) {
+            this.grass.mesh.count = this.originalGrassCount;
+        }
+        this.renderer.xr.setFramebufferScaleFactor(1.0);
     }
 
     render() {

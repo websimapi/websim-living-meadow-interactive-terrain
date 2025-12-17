@@ -9,17 +9,10 @@ export class AudioSystem {
     }
 
     async init() {
-        if (this.isInit) return;
-
         if (this.ctx.state === 'suspended') {
-            try {
-                await this.ctx.resume();
-            } catch (err) {
-                console.warn('Audio resume failed:', err);
-            }
+            await this.ctx.resume();
         }
         
-        // Re-check in case multiple inits fired
         if (this.isInit) return;
         this.isInit = true;
 
