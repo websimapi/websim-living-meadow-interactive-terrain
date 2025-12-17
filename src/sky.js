@@ -12,15 +12,15 @@ export class SkySystem {
 
         this.dirLight = new THREE.DirectionalLight(0xffffff, 1);
         this.dirLight.castShadow = true;
-        this.dirLight.shadow.mapSize.width = 2048;
-        this.dirLight.shadow.mapSize.height = 2048;
-        const d = 50;
+        this.dirLight.shadow.mapSize.width = 4096;
+        this.dirLight.shadow.mapSize.height = 4096;
+        const d = 60; // Increased coverage
         this.dirLight.shadow.camera.left = -d;
         this.dirLight.shadow.camera.right = d;
         this.dirLight.shadow.camera.top = d;
         this.dirLight.shadow.camera.bottom = -d;
-        this.dirLight.shadow.camera.far = 100;
-        this.dirLight.shadow.bias = -0.0001;
+        this.dirLight.shadow.camera.far = 500; // Increased far plane for low angles
+        this.dirLight.shadow.bias = -0.00005; // Tighter bias for high res
         this.scene.add(this.dirLight);
 
         this.ambientLight = new THREE.AmbientLight(0x222222);
