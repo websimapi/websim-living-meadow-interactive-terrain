@@ -82,8 +82,8 @@ const GRASS_VERTEX_SHADER = `
                 vec2 dirXZ = worldBasePos.xz - intPos.xz;
                 float d = length(dirXZ);
                 
-                // Interaction Radius: Finger Radius + Influence Padding (0.2m)
-                float influenceRad = radius + 0.2; 
+                // Interaction Radius: Tighter for precision
+                float influenceRad = radius + 0.08; 
                 
                 // 2. Height check (Roughly within grass height range)
                 float relY = intPos.y - worldBasePos.y;
@@ -91,17 +91,17 @@ const GRASS_VERTEX_SHADER = `
 
                 if (d < influenceRad && withinHeight) {
                     float power = 1.0 - (d / influenceRad);
-                    power = power * power; // Quadratic falloff for smooth interaction
+                    power = power * power * power; // Cubic falloff for sharper "touch" near finger
                     
                     vec2 pushDir = normalize(dirXZ);
                     if (length(dirXZ) < 0.0001) pushDir = vec2(1.0, 0.0);
                     
                     // Velocity Drag (follow the finger motion)
-                    totalPush.xz += intVel.xz * power * 0.1;
+                    totalPush.xz += intVel.xz * power * 0.2;
                     
                     // Repulsion (Push away from finger center)
-                    // Strong push to ensure visual clearance
-                    totalPush.xz += pushDir * power * 1.2;
+                    // Reduced strength to keep grass closer to finger
+                    totalPush.xz += pushDir * power * 0.5;
                 }
             }
         }
@@ -186,18 +186,18 @@ const GRASS_DEPTH_VERTEX_SHADER = `
                 
                 vec2 dirXZ = worldBasePos.xz - intPos.xz;
                 float d = length(dirXZ);
-                float influenceRad = radius + 0.2; 
+                float influenceRad = radius + 0.08; 
                 float relY = intPos.y - worldBasePos.y;
 
                 if (d < influenceRad && relY > -0.3 && relY < 1.0) {
                     float power = 1.0 - (d / influenceRad);
-                    power = power * power; 
+                    power = power * power * power; 
                     
                     vec2 pushDir = normalize(dirXZ);
                     if (length(dirXZ) < 0.0001) pushDir = vec2(1.0, 0.0);
                     
-                    totalPush.xz += intVel.xz * power * 0.1;
-                    totalPush.xz += pushDir * power * 1.2;
+                    totalPush.xz += intVel.xz * power * 0.2;
+                    totalPush.xz += pushDir * power * 0.5;
                 }
             }
         }
