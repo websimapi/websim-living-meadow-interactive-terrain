@@ -27,9 +27,9 @@ const GRASS_VERTEX_SHADER = `
         // --- LOD/Distance Culling ---
         float dist = distance(offset, uCameraPosition);
         
-        // Aggressive VR Culling: Fade out between 10m and 15m to reduce overdraw
+        // Aggressive VR Culling: Fade out between 8m and 12m to reduce overdraw
         // This is crucial for performance on standalone VR headsets
-        float distScale = 1.0 - smoothstep(10.0, 15.0, dist);
+        float distScale = 1.0 - smoothstep(8.0, 12.0, dist);
         
         if(distScale < 0.01) {
             // Collapse to degenerate
@@ -94,20 +94,26 @@ const GRASS_VERTEX_SHADER = `
                 if(d < radius) {
                     float force = smoothstep(0.0, 1.0, 1.0 - (d / radius));
                     
-                    // 1. Repulsion (Volumetric displacement)
-                    // Push away from the interaction point
-                    vec3 pushDir = normalize(closestPoint - intPos);
+                    // 1. Repulsion
+                    vec3 diff = closestPoint - intPos;
+                    vec3 pushDir = normalize(diff + vec3(0.001, 0.0, 0.0)); // Avoid zero vector
                     
-                    // 2. Drag (Velocity-based)
-                    // Pull/Push grass in direction of finger movement
-                    // We flatten Y slightly so grass doesn't fly up too much
-                    vec3 dragForce = intVel * 2.5; // Significant multiplier for responsiveness
-                    dragForce.y *= 0.2; 
+                    // 2. Directional Bias (Fix for "Popping")
+                    // If moving fast, blend repulsion with movement direction to allow "pulling"
+                    float velLen = length(intVel);
+                    float blendFactor = smoothstep(0.05, 0.5, velLen); 
                     
-                    // Combine forces
-                    // Repulsion keeps grass out of finger volume
-                    // Drag allows "combing" and pulling
-                    vec3 interactionForce = (pushDir * 1.0 + dragForce) * force;
+                    if (velLen > 0.01) {
+                        vec3 moveDir = normalize(intVel);
+                        pushDir = normalize(mix(pushDir, moveDir, blendFactor * 0.75));
+                    }
+
+                    // 3. Strong Drag
+                    vec3 dragForce = intVel * 3.5; 
+                    dragForce.y *= 0.1; 
+                    
+                    // Combine
+                    vec3 interactionForce = (pushDir * 1.2 + dragForce) * force;
                     
                     totalDisp += interactionForce; 
                 }
@@ -158,7 +164,7 @@ const GRASS_DEPTH_VERTEX_SHADER = `
     
     void main() {
         float dist = distance(offset, uCameraPosition);
-        float distScale = 1.0 - smoothstep(10.0, 15.0, dist);
+        float distScale = 1.0 - smoothstep(8.0, 12.0, dist);
         
         if(distScale < 0.01) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
@@ -209,11 +215,21 @@ const GRASS_DEPTH_VERTEX_SHADER = `
                 if(d < radius) {
                     float force = smoothstep(0.0, 1.0, 1.0 - (d / radius));
                     
-                    vec3 pushDir = normalize(closestPoint - intPos);
-                    vec3 dragForce = intVel * 2.5;
-                    dragForce.y *= 0.2;
+                    vec3 diff = closestPoint - intPos;
+                    vec3 pushDir = normalize(diff + vec3(0.001, 0.0, 0.0));
                     
-                    vec3 interactionForce = (pushDir * 1.0 + dragForce) * force;
+                    float velLen = length(intVel);
+                    float blendFactor = smoothstep(0.05, 0.5, velLen); 
+                    
+                    if (velLen > 0.01) {
+                        vec3 moveDir = normalize(intVel);
+                        pushDir = normalize(mix(pushDir, moveDir, blendFactor * 0.75));
+                    }
+                    
+                    vec3 dragForce = intVel * 3.5;
+                    dragForce.y *= 0.1;
+                    
+                    vec3 interactionForce = (pushDir * 1.2 + dragForce) * force;
                     totalDisp += interactionForce; 
                 }
             }
@@ -317,7 +333,7 @@ export class GrassSystem {
         // Chunk config
         this.chunkSize = 5; // Smaller chunks for very tight culling in VR
         this.terrainSize = 100;
-        this.maxRenderDist = 15.0; // Highly optimized for mobile VR
+        this.maxRenderDist = 12.0; // Highly optimized for mobile VR
     }
 
     init() {

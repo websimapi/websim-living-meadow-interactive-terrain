@@ -95,8 +95,8 @@ export class InteractionSystem {
                     if (joint) {
                         const pos = new THREE.Vector3();
                         joint.getWorldPosition(pos);
-                        // Using a slightly smaller radius for precision, rely on velocity for impact
-                        addInteractor(`h${handIndex}_${name}`, pos, 0.04); 
+                        // Increased radius slightly for more realistic "fleshy" collision
+                        addInteractor(`h${handIndex}_${name}`, pos, 0.06); 
                     }
                 });
             }
